@@ -1,0 +1,605 @@
+"""
+Local POC AI Agent — Function Calling + Multi-Turn Interactions
+Stack: LangChain + Ollama (llama3.1) + Semantic Search (nomic-embed-text)
+
+Architecture: Python state machine handles all flow logic.
+LLM is used only for: intent detection, greeting responses, and Arabic formatting.
+"""
+
+import json
+import math
+import random
+from enum import Enum, auto
+from typing import Optional
+from dataclasses import dataclass
+
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+
+
+# ---------------------------------------------------------------------------
+# Mock Data
+# ---------------------------------------------------------------------------
+
+PROJECTS_DB = [
+    {"id": "P001", "name": "National Smart Grid Initiative",       "ministry": "Energy",      "budget": "500M SAR",  "status": "Active",   "lead": "Eng. Khalid Al-Rashid"},
+    {"id": "P002", "name": "Smart Traffic Management System",      "ministry": "Transport",   "budget": "120M SAR",  "status": "Active",   "lead": "Eng. Sara Al-Otaibi"},
+    {"id": "P003", "name": "National Smart Health Records",        "ministry": "Health",      "budget": "300M SAR",  "status": "Planning", "lead": "Dr. Fahad Al-Dossari"},
+    {"id": "P004", "name": "Smart Water Conservation Network",     "ministry": "Environment", "budget": "80M SAR",   "status": "Active",   "lead": "Eng. Noura Al-Shehri"},
+    {"id": "P005", "name": "Smart City Infrastructure — Riyadh",  "ministry": "Municipal",   "budget": "750M SAR",  "status": "Active",   "lead": "Eng. Omar Al-Ghamdi"},
+    {"id": "P006", "name": "Smart City Infrastructure — Jeddah",  "ministry": "Municipal",   "budget": "600M SAR",  "status": "Planning", "lead": "Eng. Reem Al-Zahrani"},
+]
+
+SERVICES_DB = [
+    {"id": "S001", "name": "Business License Registration",   "ministry": "Commerce",     "category": "Business",      "processing_days": 3,  "fee": "500 SAR"},
+    {"id": "S002", "name": "Building Permit Application",     "ministry": "Municipal",    "category": "Construction",  "processing_days": 14, "fee": "2000 SAR"},
+    {"id": "S003", "name": "Health Facility License",         "ministry": "Health",       "category": "Licensing",     "processing_days": 30, "fee": "5000 SAR"},
+    {"id": "S004", "name": "Environmental Impact Assessment", "ministry": "Environment",  "category": "Assessment",    "processing_days": 45, "fee": "10000 SAR"},
+    {"id": "S005", "name": "Vehicle Registration",            "ministry": "Transport",    "category": "Registration",  "processing_days": 1,  "fee": "200 SAR"},
+    {"id": "S006", "name": "Driver's License Renewal",        "ministry": "Transport",    "category": "Registration",  "processing_days": 1,  "fee": "400 SAR"},
+]
+
+MINISTRIES_DB = {
+    "Energy":      {"head": "Eng. Abdulaziz Al-Saud",     "employees": 4500,   "annual_budget": "15B SAR",  "established": 1975},
+    "Transport":   {"head": "Eng. Saleh Al-Jabir",         "employees": 8200,   "annual_budget": "22B SAR",  "established": 1953},
+    "Health":      {"head": "Dr. Fahad Al-Jalajel",        "employees": 120000, "annual_budget": "180B SAR", "established": 1949},
+    "Environment": {"head": "Eng. Abdulrahman Al-Fadley",  "employees": 3100,   "annual_budget": "8B SAR",   "established": 2016},
+    "Municipal":   {"head": "Eng. Majid Al-Hogail",        "employees": 6700,   "annual_budget": "35B SAR",  "established": 1975},
+    "Commerce":    {"head": "Dr. Majid Al-Qasabi",         "employees": 5300,   "annual_budget": "12B SAR",  "established": 1954},
+}
+
+# Display name in Arabic for each ministry (also used to build the semantic index)
+MINISTRY_AR = {
+    "Energy": "الطاقة", "Transport": "النقل", "Health": "الصحة",
+    "Environment": "البيئة", "Municipal": "الشؤون البلدية", "Commerce": "التجارة",
+}
+
+# Extra Arabic synonyms — strengthen the semantic index so colloquial words
+# (المواصلات, الكهرباء, البلدية...) map to the right ministry.
+MINISTRY_SYNONYMS = {
+    "Energy":      "الطاقة الكهرباء الوقود البترول",
+    "Transport":   "النقل المواصلات الطرق المرور السيارات",
+    "Health":      "الصحة المستشفيات العلاج الطب",
+    "Environment": "البيئة المياه التلوث الطبيعة",
+    "Municipal":   "الشؤون البلدية البلدية الأمانة المدن",
+    "Commerce":    "التجارة الأعمال الشركات الاقتصاد",
+}
+
+AFFIRMATIVES = {
+    # فصحى / رسمية
+    "نعم", "موافق", "تأكيد", "تاكيد", "مؤكد",
+    # عامية سعودية وخليجية
+    "اي", "آي", "اه", "أه", "إيه", "ايه",
+    "يلا", "يالله", "تمام", "اكيد", "أكيد",
+    "صح", "صحيح", "طيب", "ماشي", "امضي", "امضي قدام",
+    "وافق", "قدم", "سجل", "نفذ", "ابدأ", "شيله",
+    "زبالة", "عادي", "خلاص", "حلو", "ثابر",
+    # إنجليزي
+    "yes", "ok", "okay", "sure", "confirm", "go",
+    "proceed", "submit", "do it", "let's go", "yep", "yup",
+}
+
+CANCEL_WORDS = {
+    "لا", "لأ", "لآ", "ماابي", "ما ابي", "بلاش", "الغاء", "إلغاء",
+    "كنسل", "وقف", "اوقف", "رجوع",
+    "no", "cancel", "stop", "nope", "nah", "back",
+}
+
+# Keywords that hint at yes/no even mid-sentence
+_YES_HINTS = {"وافق", "قدم", "سجل", "نفذ", "ابدأ", "امضي", "تأكد", "اكمل"}
+_NO_HINTS  = {"بلاش", "الغ", "الغاء", "إلغاء", "ماابي", "ارجع"}
+
+
+# ---------------------------------------------------------------------------
+# Semantic Search Engine
+# ---------------------------------------------------------------------------
+
+class SemanticIndex:
+    def __init__(self, embedder: OllamaEmbeddings, records: list, fields: list):
+        self.records = records
+        texts = [" ".join(str(r.get(f, "")) for f in fields) for r in records]
+        self.vectors = embedder.embed_documents(texts)
+        self._embed = embedder.embed_query
+
+    def search(self, query: str, top_k: int = 6, threshold: float = 0.25) -> list:
+        q_vec = self._embed(query)
+        scored = [(self._cos(q_vec, v), r) for v, r in zip(self.vectors, self.records)]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [r for score, r in scored if score >= threshold][:top_k]
+
+    @staticmethod
+    def _cos(a, b) -> float:
+        dot = sum(x * y for x, y in zip(a, b))
+        ma = math.sqrt(sum(x * x for x in a))
+        mb = math.sqrt(sum(x * x for x in b))
+        return dot / (ma * mb) if ma and mb else 0.0
+
+
+# ---------------------------------------------------------------------------
+# State Machine
+# ---------------------------------------------------------------------------
+
+class Stage(Enum):
+    FREE          = auto()
+    PICKED_LIST   = auto()   # User saw a list, waiting for number
+    CONFIRM_APPLY = auto()   # Showed service details, asking "want to apply?"
+    ASK_NAME      = auto()
+    ASK_NID       = auto()
+    CONFIRM_SUB   = auto()   # Showing report, waiting for final yes
+
+
+@dataclass
+class State:
+    stage:           Stage = Stage.FREE
+    last_list:       Optional[list] = None   # list of dicts shown to user
+    last_list_type:  Optional[str] = None    # "project" or "service"
+    pending_service: Optional[dict] = None
+    applicant_name:  Optional[str] = None
+    national_id:     Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# LLM — used only for intent + greeting
+# ---------------------------------------------------------------------------
+
+INTENT_SYSTEM = """You are an intent classifier for a Saudi government portal assistant.
+Classify the user's message into EXACTLY ONE intent label.
+Reply with ONLY the label — no explanation, no extra words.
+
+Intents:
+  GREETING       — greetings only: hi, hello, مرحبا, هلا, السلام عليكم, صباح الخير
+  ABOUT          — asking who/what the assistant is or what it can do:
+                   "من انت", "وش تسوي", "كيف تساعدني", "who are you", "what can you do"
+  SEARCH_PROJECT — wants to find/list/search government PROJECTS (مشاريع)
+  SEARCH_SERVICE — wants to find/list/search government SERVICES (خدمات، تراخيص، تسجيل)
+  MINISTRY_INFO  — asking about a specific MINISTRY by name (وزارة الصحة، وزارة النقل)
+  OTHER          — anything that doesn't fit the above
+
+Rules:
+- "من انت" or "وش تسوي" → ABOUT (NOT MINISTRY_INFO)
+- A ministry name must be explicitly mentioned for MINISTRY_INFO.
+- If unsure, choose OTHER.
+
+Examples:
+  "من انت" → ABOUT
+  "وش الخدمات الموجودة" → SEARCH_SERVICE
+  "ابي مشاريع الطاقة" → SEARCH_PROJECT
+  "معلومات عن وزارة الصحة" → MINISTRY_INFO
+  "هلا" → GREETING"""
+
+FORMAT_SYSTEM = """You are a helpful Arabic assistant for a Saudi government portal.
+Format the given data as a clean, professional Arabic response.
+Use bold labels, bullet points, and clear structure.
+Reply ONLY in Arabic. Keep it concise."""
+
+
+def detect_intent(llm: ChatOllama, text: str) -> str:
+    msgs = [SystemMessage(content=INTENT_SYSTEM), HumanMessage(content=text)]
+    result = llm.invoke(msgs).content.strip().upper()
+    # Check ABOUT before MINISTRY_INFO so "من انت" isn't mistaken for a ministry query
+    for intent in ["ABOUT", "GREETING", "SEARCH_PROJECT", "SEARCH_SERVICE", "MINISTRY_INFO"]:
+        if intent in result:
+            return intent
+    return "OTHER"
+
+
+def llm_format(llm: ChatOllama, data: str, instruction: str) -> str:
+    msgs = [
+        SystemMessage(content=FORMAT_SYSTEM),
+        HumanMessage(content=f"{instruction}\n\nData:\n{data}"),
+    ]
+    return llm.invoke(msgs).content.strip()
+
+
+# Fixed welcome message — hardcoded so the model never invents capabilities
+# that the system doesn't actually have (e.g. "login to your account").
+WELCOME_MESSAGE = (
+    "أهلاً بك! أنا مساعد بوابة الهيئة السعودية للبيانات والذكاء الاصطناعي.\n\n"
+    "يمكنني مساعدتك في:\n"
+    "• البحث عن مشاريع حكومية (مثال: مشاريع المدن الذكية، مشاريع الطاقة)\n"
+    "• استعراض الخدمات الحكومية المتاحة (مثال: تراخيص، تسجيل مركبة)\n"
+    "• معلومات عن الوزارات\n"
+    "• تقديم طلب خدمة حكومية\n\n"
+    "بماذا تريد أن أساعدك؟"
+)
+
+
+def greeting_reply(llm: ChatOllama) -> str:
+    return WELCOME_MESSAGE
+
+
+# ---------------------------------------------------------------------------
+# Formatting Helpers (pure Python — no LLM needed)
+# ---------------------------------------------------------------------------
+
+def format_project_list(projects: list) -> str:
+    lines = ["**نتائج البحث — المشاريع الحكومية:**\n"]
+    for i, p in enumerate(projects, 1):
+        lines.append(
+            f"{i}. **{p['name']}**\n"
+            f"   - الوزارة: {p['ministry']} | الميزانية: {p['budget']} | الحالة: {p['status']}"
+        )
+    lines.append("\nاختر رقماً من القائمة للحصول على التفاصيل الكاملة.")
+    return "\n".join(lines)
+
+
+def format_service_list(services: list) -> str:
+    lines = ["**نتائج البحث — الخدمات الحكومية:**\n"]
+    for i, s in enumerate(services, 1):
+        lines.append(
+            f"{i}. **{s['name']}**\n"
+            f"   - الوزارة: {s['ministry']} | التصنيف: {s['category']} | الرسوم: {s['fee']}"
+        )
+    lines.append("\nاختر رقماً من القائمة للحصول على التفاصيل الكاملة.")
+    return "\n".join(lines)
+
+
+def format_project_detail(p: dict) -> str:
+    return (
+        f"**تفاصيل المشروع: {p['name']}**\n\n"
+        f"- **الرقم التعريفي:** {p['id']}\n"
+        f"- **الوزارة:** {p['ministry']}\n"
+        f"- **الميزانية:** {p['budget']}\n"
+        f"- **الحالة:** {p['status']}\n"
+        f"- **مدير المشروع:** {p['lead']}\n"
+        f"- **آخر تحديث:** 2026-06-15\n"
+        f"- **المراحل:** جمع المتطلبات ✓ | اختيار الموردين ⏳ | إطلاق تجريبي Q4 2026"
+    )
+
+
+def format_service_detail(s: dict) -> str:
+    return (
+        f"**تفاصيل الخدمة: {s['name']}**\n\n"
+        f"- **الرقم التعريفي:** {s['id']}\n"
+        f"- **الوزارة:** {s['ministry']}\n"
+        f"- **التصنيف:** {s['category']}\n"
+        f"- **الرسوم:** {s['fee']}\n"
+        f"- **مدة المعالجة:** {s['processing_days']} أيام عمل\n"
+        f"- **المستندات المطلوبة:** الهوية الوطنية، نموذج الطلب، المستندات الداعمة\n\n"
+        f"هل تريد تقديم طلب لهذه الخدمة؟"
+    )
+
+
+def format_ministry(name: str, info: dict) -> str:
+    ar_name = MINISTRY_AR.get(name, name)
+    return (
+        f"**معلومات وزارة {ar_name}**\n\n"
+        f"- **الوزير:** {info['head']}\n"
+        f"- **عدد الموظفين:** {info['employees']:,}\n"
+        f"- **الميزانية السنوية:** {info['annual_budget']}\n"
+        f"- **تأسست عام:** {info['established']}"
+    )
+
+
+def format_report(s: dict, name: str, nid: str) -> str:
+    return (
+        f"**تقرير الطلب — يرجى المراجعة قبل التأكيد**\n\n"
+        f"| البند | القيمة |\n"
+        f"|---|---|\n"
+        f"| الخدمة | {s['name']} |\n"
+        f"| الوزارة | {s['ministry']} |\n"
+        f"| مقدم الطلب | {name} |\n"
+        f"| رقم الهوية | {nid} |\n"
+        f"| الرسوم | {s['fee']} |\n"
+        f"| مدة المعالجة | {s['processing_days']} أيام عمل |\n\n"
+        f"هل تؤكد تقديم الطلب؟ (اكتب أي كلمة موافقة للتنفيذ، أو 'لا' للإلغاء)"
+    )
+
+
+def format_success(s: dict, name: str) -> str:
+    ref = f"REF-{random.randint(100000, 999999)}"
+    return (
+        f"✅ **تم تقديم طلبك بنجاح!**\n\n"
+        f"- **رقم المرجع:** `{ref}`\n"
+        f"- **الخدمة:** {s['name']}\n"
+        f"- **مقدم الطلب:** {name}\n"
+        f"- **المدة المتوقعة:** {s['processing_days']} أيام عمل\n\n"
+        f"احتفظ برقم المرجع **{ref}** لمتابعة طلبك."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main Router
+# ---------------------------------------------------------------------------
+
+class SDAAgent:
+    def __init__(self, llm: ChatOllama, project_idx: SemanticIndex,
+                 service_idx: SemanticIndex, ministry_idx: SemanticIndex):
+        self.llm = llm
+        self.project_idx = project_idx
+        self.service_idx = service_idx
+        self.ministry_idx = ministry_idx
+        self.state = State()
+
+    def _classify_intent(self, text: str) -> str:
+        """
+        Returns 'yes', 'no', or 'unclear'.
+        Checks explicit word lists first (fast), then falls back to the LLM.
+        """
+        low = text.lower().strip()
+
+        # 1) Exact match
+        if low in AFFIRMATIVES:
+            return "yes"
+        if low in CANCEL_WORDS:
+            return "no"
+
+        # 2) Hint keywords anywhere in the text
+        if any(h in low for h in _YES_HINTS):
+            return "yes"
+        if any(h in low for h in _NO_HINTS):
+            return "no"
+
+        # 3) LLM fallback for ambiguous / longer sentences
+        prompt = (
+            "The user was asked a yes/no confirmation question in an Arabic government portal. "
+            "Their reply is: \"" + text + "\"\n"
+            "Reply with exactly one word: YES or NO or UNCLEAR."
+        )
+        result = self.llm.invoke(prompt).content.strip().upper()
+        if "YES" in result:
+            return "yes"
+        if "NO" in result:
+            return "no"
+        return "unclear"
+
+    def _is_yes(self, text: str) -> bool:
+        return self._classify_intent(text) == "yes"
+
+    def _is_no(self, text: str) -> bool:
+        return self._classify_intent(text) == "no"
+
+    def _parse_number(self, text: str) -> Optional[int]:
+        arabic_digits = {"٠": 0, "١": 1, "٢": 2, "٣": 3, "٤": 4, "٥": 5, "٦": 6, "٧": 7, "٨": 8, "٩": 9}
+        t = text.strip()
+        for ar, en in arabic_digits.items():
+            t = t.replace(ar, str(en))
+        try:
+            return int(t)
+        except ValueError:
+            # word numbers
+            words = {"واحد": 1, "اثنين": 2, "اثنان": 2, "ثلاثة": 3, "اربعة": 4, "خمسة": 5, "ستة": 6,
+                     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+            low = text.strip().lower()
+            return words.get(low)
+
+    def _best_ministry(self, text: str) -> Optional[str]:
+        """
+        Return the best-matching ministry KEY, or None if ambiguous/no match.
+        Uses semantic similarity with a margin check so a weak/tied match
+        doesn't silently pick the wrong ministry.
+        """
+        idx = self.ministry_idx
+        q_vec = idx._embed(text)
+        scored = sorted(
+            ((idx._cos(q_vec, v), rec["key"]) for v, rec in zip(idx.vectors, idx.records)),
+            key=lambda x: x[0], reverse=True,
+        )
+        if not scored:
+            return None
+        top_score, top_key = scored[0]
+        # The top match is reliable above this threshold; a tiny margin guard
+        # only blocks true ties.
+        if top_score >= 0.5:
+            return top_key
+        return None
+
+    def _resolve_selection(self, text: str) -> Optional[dict]:
+        """
+        Resolve the user's choice from the last shown list — adaptively.
+        Tries, in order: (1) a number, (2) an exact/substring name match,
+        (3) the best semantic match if the input clearly refers to one item.
+        Returns the chosen record, or None if nothing confidently matches.
+        """
+        s = self.state
+        if not s.last_list:
+            return None
+
+        # 1) Number selection
+        n = self._parse_number(text)
+        if n and 1 <= n <= len(s.last_list):
+            return s.last_list[n - 1]
+
+        # 2) Name match (substring, case-insensitive, both directions)
+        low = text.strip().lower()
+        if len(low) >= 3:
+            for item in s.last_list:
+                name = item["name"].lower()
+                if low in name or name in low:
+                    return item
+
+        # 3) Semantic match — constrained to the items actually shown.
+        # Only commit if the top candidate is BOTH above threshold AND clearly
+        # ahead of the runner-up. If it's ambiguous, return None so the caller
+        # re-searches instead of silently picking the wrong item.
+        idx = self.project_idx if s.last_list_type == "project" else self.service_idx
+        q_vec = idx._embed(text)
+        scored = [(idx._cos(q_vec, idx.vectors[idx.records.index(item)]), item)
+                  for item in s.last_list]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        if scored and scored[0][0] >= 0.5:
+            margin = scored[0][0] - (scored[1][0] if len(scored) > 1 else 0.0)
+            if margin >= 0.08:
+                return scored[0][1]
+
+        return None
+
+    def handle(self, user_input: str) -> str:
+        s = self.state
+        text = user_input.strip()
+
+        # ── PICKED_LIST: user picks by number OR by name ───────────────────
+        if s.stage == Stage.PICKED_LIST:
+            item = self._resolve_selection(text)
+            if item is not None:
+                s.last_list = None
+                if s.last_list_type == "project":
+                    s.stage = Stage.FREE
+                    return format_project_detail(item)
+                else:  # service
+                    s.pending_service = item
+                    s.stage = Stage.CONFIRM_APPLY
+                    return format_service_detail(item)
+            # Couldn't match a number or a name → treat as a brand-new request
+            # instead of rigidly insisting on a number (adaptive behavior).
+            s.stage = Stage.FREE
+            s.last_list = None
+            # fall through to FREE handling below
+
+        # ── CONFIRM_APPLY: asking if user wants to apply ───────────────────
+        if s.stage == Stage.CONFIRM_APPLY:
+            intent = self._classify_intent(text)
+            if intent == "yes":
+                s.stage = Stage.ASK_NAME
+                return f"سأبدأ تقديم طلب خدمة **{s.pending_service['name']}**.\n\nما هو اسمك الكامل؟"
+            elif intent == "no":
+                s.stage = Stage.FREE
+                s.pending_service = None
+                return "حسناً. كيف يمكنني مساعدتك؟"
+            else:
+                return f"هل تريد تقديم طلب لخدمة **{s.pending_service['name']}**؟ (نعم / لا)"
+
+        # ── ASK_NAME ───────────────────────────────────────────────────────
+        if s.stage == Stage.ASK_NAME:
+            s.applicant_name = text
+            s.stage = Stage.ASK_NID
+            return "شكراً. ما هو رقم هويتك الوطنية؟"
+
+        # ── ASK_NID ────────────────────────────────────────────────────────
+        if s.stage == Stage.ASK_NID:
+            s.national_id = text
+            s.stage = Stage.CONFIRM_SUB
+            return format_report(s.pending_service, s.applicant_name, s.national_id)
+
+        # ── CONFIRM_SUB: final confirmation ───────────────────────────────
+        if s.stage == Stage.CONFIRM_SUB:
+            intent = self._classify_intent(text)
+            if intent == "yes":
+                result = format_success(s.pending_service, s.applicant_name)
+                s.stage = Stage.FREE
+                s.pending_service = None
+                s.applicant_name = None
+                s.national_id = None
+                return result
+            elif intent == "unclear":
+                return "هل تؤكد تقديم الطلب؟ (اكتب نعم للتأكيد أو لا للإلغاء)"
+            else:
+                s.stage = Stage.FREE
+                s.pending_service = None
+                s.applicant_name = None
+                s.national_id = None
+                return "تم إلغاء الطلب. كيف يمكنني مساعدتك؟"
+
+        # ── FREE: detect intent and act ────────────────────────────────────
+        intent = detect_intent(self.llm, text)
+
+        if intent in ("GREETING", "ABOUT"):
+            return WELCOME_MESSAGE
+
+        if intent == "SEARCH_PROJECT":
+            results = self.project_idx.search(text)
+            if not results:
+                return "لم أجد مشاريع تطابق بحثك. جرّب كلمات أخرى مثل: طاقة، صحة، مدن ذكية، نقل."
+            if len(results) == 1:
+                return format_project_detail(results[0])
+            s.last_list = results
+            s.last_list_type = "project"
+            s.stage = Stage.PICKED_LIST
+            return format_project_list(results)
+
+        if intent == "SEARCH_SERVICE":
+            results = self.service_idx.search(text)
+            if not results:
+                return "لم أجد خدمات تطابق بحثك. جرّب كلمات مثل: ترخيص، تسجيل، تقييم، بناء."
+            if len(results) == 1:
+                svc = results[0]
+                s.pending_service = svc
+                s.stage = Stage.CONFIRM_APPLY
+                return format_service_detail(svc)
+            s.last_list = results
+            s.last_list_type = "service"
+            s.stage = Stage.PICKED_LIST
+            return format_service_list(results)
+
+        if intent == "MINISTRY_INFO":
+            # Semantic match — handles spelling variants (الصحه/الصحة), synonyms, AR/EN.
+            # Require the top match to clearly beat the runner-up, otherwise ask.
+            key = self._best_ministry(text)
+            if key:
+                return format_ministry(key, MINISTRIES_DB[key])
+            available = "\n".join(f"• {MINISTRY_AR[k]}" for k in MINISTRIES_DB)
+            return f"عن أي وزارة تسأل؟ الوزارات المتاحة:\n{available}"
+
+        return WELCOME_MESSAGE
+
+
+# ---------------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------------
+
+def build() -> SDAAgent:
+    print("\n  [Startup] Loading models...")
+    embedder = OllamaEmbeddings(model="nomic-embed-text")
+    llm = ChatOllama(model="llama3.1", temperature=0)
+
+    print("  [Semantic] Building project index...", end=" ", flush=True)
+    p_idx = SemanticIndex(embedder, PROJECTS_DB, ["name", "ministry", "status"])
+    print("done.")
+
+    print("  [Semantic] Building service index...", end=" ", flush=True)
+    s_idx = SemanticIndex(embedder, SERVICES_DB, ["name", "ministry", "category"])
+    print("done.")
+
+    print("  [Semantic] Building ministry index...", end=" ", flush=True)
+    # Each ministry record carries its English key + both English and Arabic names,
+    # so the embedding captures all spelling variants in one vector.
+    # Index ONLY distinguishing words (Arabic name + synonyms). Adding the shared
+    # "وزارة" boilerplate would inflate every score and crush the margins.
+    ministry_records = [
+        {"key": k, "name_ar": MINISTRY_AR[k], "synonyms": MINISTRY_SYNONYMS[k]}
+        for k in MINISTRIES_DB
+    ]
+    m_idx = SemanticIndex(embedder, ministry_records, ["name_ar", "synonyms"])
+    print("done.")
+
+    return SDAAgent(llm, p_idx, s_idx, m_idx)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    print("\n" + "=" * 60)
+    print("  Saudi Digital Authority — AI Assistant (Local POC)")
+    print("  Model: llama3.1 + nomic-embed-text via Ollama")
+    print("=" * 60)
+    print("  Type 'exit' or 'quit' to end the session.")
+
+    agent = build()
+    print("\n  Ready! Start chatting.\n")
+
+    while True:
+        try:
+            user_input = input("You: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\nSession ended.")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in {"exit", "quit", "q"}:
+            print("Goodbye!")
+            break
+
+        print("\nAssistant: ", end="", flush=True)
+        try:
+            reply = agent.handle(user_input)
+            print(reply)
+        except Exception as e:
+            print(f"[Error] {e}")
+        print()
+
+
+if __name__ == "__main__":
+    main()
