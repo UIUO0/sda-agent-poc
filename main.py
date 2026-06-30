@@ -488,10 +488,16 @@ class SDAAgent:
         scored = [(idx._cos(q_vec, idx.vectors[idx.records.index(item)]), item)
                   for item in s.last_list]
         scored.sort(key=lambda x: x[0], reverse=True)
-        if scored and scored[0][0] >= 0.5:
-            margin = scored[0][0] - (scored[1][0] if len(scored) > 1 else 0.0)
-            if margin >= 0.08:
-                return scored[0][1]
+        if scored:
+            top_score, top_item = scored[0]
+            margin = top_score - (scored[1][0] if len(scored) > 1 else 0.0)
+            # The small local embedding model gives every Arabic phrase a high
+            # baseline similarity, so on-topic selections (~0.77+) and off-topic
+            # inputs (~0.73-) separate by absolute score more reliably than by
+            # margin. Accept the top item if it clearly leads (margin) OR scores
+            # high enough to be a confident on-topic match.
+            if top_score >= 0.5 and (margin >= 0.08 or top_score >= 0.75):
+                return top_item
 
         return None
 
