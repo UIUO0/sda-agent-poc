@@ -70,8 +70,12 @@ so colloquial misspellings still match:
    input (handles loose word order and the "ال" prefix, e.g. "البناء" ≈ "بناء")
 4. **Distinctive word** — a word appearing in exactly one item's name uniquely
    selects it (e.g. "ابي ذيك حق جده" → the Jeddah project)
-5. **Semantic** — cosine similarity against the shown items, accepted only if
-   the top score is ≥ 0.5 and beats the runner-up by at least 0.08
+5. **Semantic** — cosine similarity against the shown items. Handles synonyms
+   and verb forms that share no words with the name (e.g. "بسجل سياره" → "تسجيل
+   مركبة"). The top item is accepted when it either clearly leads the runner-up
+   (margin ≥ 0.08) or scores high enough on its own (≥ 0.75) — the absolute
+   score separates on-topic selections (~0.77+) from off-topic input (~0.73−)
+   more reliably than the margin alone, given the small local embedding model.
 
 Confirmation replies (yes/no) are matched the same way: exact word, then
 word-level membership in the affirmative/cancel sets (so "تمام مشيها" and
@@ -302,7 +306,7 @@ The agent ships with in-memory mock data — no database required:
 | Hardcoded welcome message | Prevents the model from inventing capabilities the system doesn't have |
 | Ministry index uses only distinguishing words | Shared boilerplate ("وزارة") equalizes all scores and kills margins |
 | LLM intent classification before any semantic search | Avoids searching the wrong index; keeps search queries clean |
-| 3-tier yes/no resolution (wordlist → hints → LLM) | Fast for the 95% case; LLM only handles genuinely ambiguous replies |
+| Layered yes/no resolution (exact word → word-level set membership → hints → LLM) | Fast for the 95% case; LLM only handles genuinely ambiguous replies |
 
 ---
 

@@ -3,7 +3,8 @@ Local POC AI Agent — Function Calling + Multi-Turn Interactions
 Stack: LangChain + Ollama (llama3.1) + Semantic Search (nomic-embed-text)
 
 Architecture: Python state machine handles all flow logic.
-LLM is used only for: intent detection, greeting responses, and Arabic formatting.
+LLM is used only for: intent detection and ambiguous yes/no resolution.
+All response formatting is pure Python (no LLM) for predictability.
 """
 
 import math
