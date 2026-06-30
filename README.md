@@ -59,11 +59,23 @@ The ministry index deliberately excludes the shared word "وزارة" from every
 
 ### Adaptive Selection
 
-When a list is displayed, `_resolve_selection()` matches the user's reply in three tiers:
+When a list is displayed, `_resolve_selection()` matches the user's reply
+adaptively — the user never has to reply with just a number. All text is first
+passed through `ar_normalize()` (unifies ة/ه, أ/إ/آ→ا, ى/ي, strips diacritics)
+so colloquial misspellings still match:
 
 1. **Number** — Arabic or Western digits, or word numbers (واحد, اثنين...)
-2. **Substring** — case-insensitive name match in either direction
-3. **Semantic** — cosine similarity against items in the shown list, accepted only if the top score is ≥ 0.5 and beats the runner-up by at least 0.08
+2. **Normalized substring** — name match in either direction
+3. **Word overlap** — picks an item when ≥ 60% of its name words appear in the
+   input (handles loose word order and the "ال" prefix, e.g. "البناء" ≈ "بناء")
+4. **Distinctive word** — a word appearing in exactly one item's name uniquely
+   selects it (e.g. "ابي ذيك حق جده" → the Jeddah project)
+5. **Semantic** — cosine similarity against the shown items, accepted only if
+   the top score is ≥ 0.5 and beats the runner-up by at least 0.08
+
+Confirmation replies (yes/no) are matched the same way: exact word, then
+word-level membership in the affirmative/cancel sets (so "تمام مشيها" and
+"ايه ابي اقدم" both count as yes), then keyword hints, then an LLM fallback.
 
 ---
 
@@ -139,22 +151,33 @@ Type `exit` or `quit` to end the session.
 
 ## Example Conversations
 
-**Search for projects:**
+> The user inputs below are written in natural Saudi colloquial Arabic, with
+> spelling mistakes and loose word order — exactly as a real citizen would type.
+> The agent normalizes the text, matches by meaning, and never forces the user
+> to reply with a list number.
+
+**Browse projects — and pick one by describing it (not by number):**
 
 ```
-You: ابحث عن مشاريع المدن الذكية
+You: وش مشاريع المدن الذكيه عندكم
 Assistant: **نتائج البحث — المشاريع الحكومية:**
 
-1. **البنية التحتية للمدن الذكية — الرياض**
+1. **مبادرة الشبكة الذكية الوطنية**
+   - الوزارة: الطاقة | الميزانية: 500 مليون ريال | الحالة: نشط
+2. **البنية التحتية للمدن الذكية — الرياض**
    - الوزارة: الشؤون البلدية | الميزانية: 750 مليون ريال | الحالة: نشط
-2. **البنية التحتية للمدن الذكية — جدة**
+3. **شبكة ترشيد المياه الذكية**
+   - الوزارة: البيئة | الميزانية: 80 مليون ريال | الحالة: نشط
+4. **البنية التحتية للمدن الذكية — جدة**
    - الوزارة: الشؤون البلدية | الميزانية: 600 مليون ريال | الحالة: قيد التخطيط
-3. **نظام إدارة المرور الذكي**
+5. **السجلات الصحية الذكية الوطنية**
+   - الوزارة: الصحة | الميزانية: 300 مليون ريال | الحالة: قيد التخطيط
+6. **نظام إدارة المرور الذكي**
    - الوزارة: النقل | الميزانية: 120 مليون ريال | الحالة: نشط
 
 اختر رقماً من القائمة للحصول على التفاصيل الكاملة.
 
-You: 2
+You: ابي ذيك حق جده
 Assistant: **تفاصيل المشروع: البنية التحتية للمدن الذكية — جدة**
 
 - **الرقم التعريفي:** P006
@@ -162,54 +185,77 @@ Assistant: **تفاصيل المشروع: البنية التحتية للمدن
 - **الميزانية:** 600 مليون ريال
 - **الحالة:** قيد التخطيط
 - **مدير المشروع:** م. ريم الزهراني
+- **آخر تحديث:** 2026-06-15
+- **المراحل:** جمع المتطلبات ✓ | اختيار الموردين ⏳ | إطلاق تجريبي Q4 2026
 ```
 
-**Apply for a service:**
+**Apply for a service — full flow in colloquial Arabic, no numbers:**
 
 ```
-You: ابي اسجل سيارتي
+You: ابي اطلع رخصه بناء لعماره
 Assistant: **نتائج البحث — الخدمات الحكومية:**
 
-1. **تسجيل مركبة**
-   - الوزارة: النقل | التصنيف: التسجيل | الرسوم: 200 ريال
-2. **تجديد رخصة القيادة**
+1. **طلب رخصة بناء**
+   - الوزارة: الشؤون البلدية | التصنيف: الإنشاءات | الرسوم: 2000 ريال
+2. **تسجيل رخصة تجارية**
+   - الوزارة: التجارة | التصنيف: الأعمال | الرسوم: 500 ريال
+3. **تجديد رخصة القيادة**
    - الوزارة: النقل | التصنيف: التسجيل | الرسوم: 400 ريال
-   ...
+4. **ترخيص منشأة صحية**
+   - الوزارة: الصحة | التصنيف: التراخيص | الرسوم: 5000 ريال
+5. **تسجيل مركبة**
+   - الوزارة: النقل | التصنيف: التسجيل | الرسوم: 200 ريال
+6. **تقييم الأثر البيئي**
+   - الوزارة: البيئة | التصنيف: التقييم | الرسوم: 10000 ريال
 
 اختر رقماً من القائمة للحصول على التفاصيل الكاملة.
 
-You: 1
-Assistant: **تفاصيل الخدمة: تسجيل مركبة**
+You: ايه ذي الاولى رخصة البناء
+Assistant: **تفاصيل الخدمة: طلب رخصة بناء**
 
-- الوزارة: النقل
-- الرسوم: 200 ريال
-- مدة المعالجة: يوم عمل واحد
+- **الرقم التعريفي:** S002
+- **الوزارة:** الشؤون البلدية
+- **التصنيف:** الإنشاءات
+- **الرسوم:** 2000 ريال
+- **مدة المعالجة:** 14 يوم عمل
+- **المستندات المطلوبة:** الهوية الوطنية، نموذج الطلب، المستندات الداعمة
 
 هل تريد تقديم طلب لهذه الخدمة؟
 
-You: نعم
-Assistant: سأبدأ تقديم طلب خدمة تسجيل مركبة. ما هو اسمك الكامل؟
+You: ايه ابي اقدم
+Assistant: سأبدأ تقديم طلب خدمة **طلب رخصة بناء**.
 
-You: سعد الشهري
+ما هو اسمك الكامل؟
+
+You: عبدالله محمد الغامدي
 Assistant: شكراً. ما هو رقم هويتك الوطنية؟
 
-You: 1234567890
+You: 1098765432
 Assistant: **تقرير الطلب — يرجى المراجعة قبل التأكيد**
 
 | البند | القيمة |
 |---|---|
-| الخدمة | تسجيل مركبة |
-| مقدم الطلب | سعد الشهري |
-| رقم الهوية | 1234567890 |
-| الرسوم | 200 ريال |
+| الخدمة | طلب رخصة بناء |
+| الوزارة | الشؤون البلدية |
+| مقدم الطلب | عبدالله محمد الغامدي |
+| رقم الهوية | 1098765432 |
+| الرسوم | 2000 ريال |
+| مدة المعالجة | 14 يوم عمل |
 
-هل تؤكد تقديم الطلب؟
+هل تؤكد تقديم الطلب؟ (اكتب أي كلمة موافقة للتنفيذ، أو 'لا' للإلغاء)
 
-You: اكيد
-Assistant: تم تقديم طلبك بنجاح! رقم المرجع: REF-482931
+You: تمام مشيها
+Assistant: ✅ **تم تقديم طلبك بنجاح!**
+
+- **رقم المرجع:** `REF-483934`
+- **الخدمة:** طلب رخصة بناء
+- **مقدم الطلب:** عبدالله محمد الغامدي
+- **المدة المتوقعة:** 14 يوم عمل
+
+احتفظ برقم المرجع **REF-483934** لمتابعة طلبك.
 ```
 
-**Ministry info — with Arabic spelling variants:**
+**Ministry info — tolerates misspelling (الصحه → الصحة):**
 
 ```
 You: معلومات عن وزارة الصحه

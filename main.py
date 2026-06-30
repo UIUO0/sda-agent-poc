@@ -89,6 +89,16 @@ def ar_days(n: int) -> str:
     return f"{n} يوم عمل"  # 11+ uses the singular (tamyeez)
 
 
+def ar_normalize(s: str) -> str:
+    """Normalize Arabic text for matching: unify letter variants, drop diacritics.
+    e.g. 'رخصة' and 'رخصه' both become 'رخصه'."""
+    s = re.sub(r"[ً-ْٰـ]", "", s)   # tashkeel + tatweel
+    s = (s.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+          .replace("ى", "ي").replace("ة", "ه")
+          .replace("ؤ", "و").replace("ئ", "ي"))
+    return s.strip().lower()
+
+
 def ar_money(amount: str) -> str:
     """Display monetary amounts in Arabic: '500M SAR' -> '500 مليون ريال'."""
     m = re.match(r"\s*([\d.,]+)\s*([MB]?)\s*SAR\s*$", amount)
@@ -121,6 +131,10 @@ CANCEL_WORDS = {
 # Keywords that hint at yes/no even mid-sentence
 _YES_HINTS = {"وافق", "قدم", "سجل", "نفذ", "ابدأ", "امضي", "تأكد", "اكمل"}
 _NO_HINTS  = {"بلاش", "الغ", "الغاء", "إلغاء", "ماابي", "ارجع"}
+
+# Normalized affirmative/cancel sets for robust word-level matching.
+_NORM_AFFIRM = {ar_normalize(w) for w in AFFIRMATIVES}
+_NORM_CANCEL = {ar_normalize(w) for w in CANCEL_WORDS}
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +371,15 @@ class SDAAgent:
         if low in CANCEL_WORDS:
             return "no"
 
-        # 2) Hint keywords anywhere in the text
+        # 2) Word-level match — handles natural sentences like "تمام مشيها"
+        #    or "ايه ابي اقدم" where an affirmative word is mixed with others.
+        words = {ar_normalize(w) for w in text.split()}
+        if words & _NORM_CANCEL:
+            return "no"
+        if words & _NORM_AFFIRM:
+            return "yes"
+
+        # 3) Hint keywords anywhere in the text
         if any(h in low for h in _YES_HINTS):
             return "yes"
         if any(h in low for h in _NO_HINTS):
@@ -433,13 +455,48 @@ class SDAAgent:
         if n and 1 <= n <= len(s.last_list):
             return s.last_list[n - 1]
 
-        # 2) Name match (substring, case-insensitive, both directions)
-        low = text.strip().lower()
-        if len(low) >= 3:
+        # 2) Name match — normalized (handles ة/ه, أ/ا, تشكيل) so misspellings
+        #    like "رخصه" still match "رخصة".
+        norm_text = ar_normalize(text)
+        if len(norm_text) >= 3:
+            # 2a) substring, both directions
             for item in s.last_list:
-                name = item["name"].lower()
-                if low in name or name in low:
+                name = ar_normalize(item["name"])
+                if norm_text in name or name in norm_text:
                     return item
+
+            # 2b) word overlap — "ايه ذي الاولى رخصة البناء" should match
+            #     "طلب رخصة بناء" even with different word order / "ال" prefix.
+            def _content_words(txt: str) -> set:
+                out = set()
+                for w in ar_normalize(txt).split():
+                    if w.startswith("ال") and len(w) > 4:
+                        w = w[2:]            # strip definite article
+                    out.add(w)
+                return out
+
+            user_words = _content_words(text)
+            best_item, best_overlap = None, 0.0
+            for item in s.last_list:
+                name_words = _content_words(item["name"])
+                if not name_words:
+                    continue
+                overlap = len(name_words & user_words) / len(name_words)
+                if overlap > best_overlap:
+                    best_item, best_overlap = item, overlap
+            # Require most of the item's own words to be present.
+            if best_item is not None and best_overlap >= 0.6:
+                return best_item
+
+            # 2c) distinctive word — a word that appears in EXACTLY ONE item's
+            #     name uniquely identifies it. e.g. "ابي ذيك حق جده" -> the
+            #     Jeddah project; "ابي البناء" -> building permit.
+            matches = [
+                item for item in s.last_list
+                if {w for w in (_content_words(item["name"]) & user_words) if len(w) >= 3}
+            ]
+            if len(matches) == 1:
+                return matches[0]
 
         # 3) Semantic match — constrained to the items actually shown.
         # Only commit if the top candidate is BOTH above threshold AND clearly
