@@ -9,6 +9,7 @@ LLM is used only for: intent detection, greeting responses, and Arabic formattin
 import json
 import math
 import random
+import re
 from enum import Enum, auto
 from typing import Optional
 from dataclasses import dataclass
@@ -22,21 +23,21 @@ from langchain_ollama import ChatOllama, OllamaEmbeddings
 # ---------------------------------------------------------------------------
 
 PROJECTS_DB = [
-    {"id": "P001", "name": "National Smart Grid Initiative",       "ministry": "Energy",      "budget": "500M SAR",  "status": "Active",   "lead": "Eng. Khalid Al-Rashid"},
-    {"id": "P002", "name": "Smart Traffic Management System",      "ministry": "Transport",   "budget": "120M SAR",  "status": "Active",   "lead": "Eng. Sara Al-Otaibi"},
-    {"id": "P003", "name": "National Smart Health Records",        "ministry": "Health",      "budget": "300M SAR",  "status": "Planning", "lead": "Dr. Fahad Al-Dossari"},
-    {"id": "P004", "name": "Smart Water Conservation Network",     "ministry": "Environment", "budget": "80M SAR",   "status": "Active",   "lead": "Eng. Noura Al-Shehri"},
-    {"id": "P005", "name": "Smart City Infrastructure — Riyadh",  "ministry": "Municipal",   "budget": "750M SAR",  "status": "Active",   "lead": "Eng. Omar Al-Ghamdi"},
-    {"id": "P006", "name": "Smart City Infrastructure — Jeddah",  "ministry": "Municipal",   "budget": "600M SAR",  "status": "Planning", "lead": "Eng. Reem Al-Zahrani"},
+    {"id": "P001", "name": "مبادرة الشبكة الذكية الوطنية",          "ministry": "Energy",      "budget": "500M SAR",  "status": "Active",   "lead": "م. خالد الراشد"},
+    {"id": "P002", "name": "نظام إدارة المرور الذكي",               "ministry": "Transport",   "budget": "120M SAR",  "status": "Active",   "lead": "م. سارة العتيبي"},
+    {"id": "P003", "name": "السجلات الصحية الذكية الوطنية",         "ministry": "Health",      "budget": "300M SAR",  "status": "Planning", "lead": "د. فهد الدوسري"},
+    {"id": "P004", "name": "شبكة ترشيد المياه الذكية",              "ministry": "Environment", "budget": "80M SAR",   "status": "Active",   "lead": "م. نورة الشهري"},
+    {"id": "P005", "name": "البنية التحتية للمدن الذكية — الرياض",  "ministry": "Municipal",   "budget": "750M SAR",  "status": "Active",   "lead": "م. عمر الغامدي"},
+    {"id": "P006", "name": "البنية التحتية للمدن الذكية — جدة",     "ministry": "Municipal",   "budget": "600M SAR",  "status": "Planning", "lead": "م. ريم الزهراني"},
 ]
 
 SERVICES_DB = [
-    {"id": "S001", "name": "Business License Registration",   "ministry": "Commerce",     "category": "Business",      "processing_days": 3,  "fee": "500 SAR"},
-    {"id": "S002", "name": "Building Permit Application",     "ministry": "Municipal",    "category": "Construction",  "processing_days": 14, "fee": "2000 SAR"},
-    {"id": "S003", "name": "Health Facility License",         "ministry": "Health",       "category": "Licensing",     "processing_days": 30, "fee": "5000 SAR"},
-    {"id": "S004", "name": "Environmental Impact Assessment", "ministry": "Environment",  "category": "Assessment",    "processing_days": 45, "fee": "10000 SAR"},
-    {"id": "S005", "name": "Vehicle Registration",            "ministry": "Transport",    "category": "Registration",  "processing_days": 1,  "fee": "200 SAR"},
-    {"id": "S006", "name": "Driver's License Renewal",        "ministry": "Transport",    "category": "Registration",  "processing_days": 1,  "fee": "400 SAR"},
+    {"id": "S001", "name": "تسجيل رخصة تجارية",      "ministry": "Commerce",     "category": "Business",      "processing_days": 3,  "fee": "500 SAR"},
+    {"id": "S002", "name": "طلب رخصة بناء",          "ministry": "Municipal",    "category": "Construction",  "processing_days": 14, "fee": "2000 SAR"},
+    {"id": "S003", "name": "ترخيص منشأة صحية",       "ministry": "Health",       "category": "Licensing",     "processing_days": 30, "fee": "5000 SAR"},
+    {"id": "S004", "name": "تقييم الأثر البيئي",      "ministry": "Environment",  "category": "Assessment",    "processing_days": 45, "fee": "10000 SAR"},
+    {"id": "S005", "name": "تسجيل مركبة",            "ministry": "Transport",    "category": "Registration",  "processing_days": 1,  "fee": "200 SAR"},
+    {"id": "S006", "name": "تجديد رخصة القيادة",      "ministry": "Transport",    "category": "Registration",  "processing_days": 1,  "fee": "400 SAR"},
 ]
 
 MINISTRIES_DB = {
@@ -64,6 +65,38 @@ MINISTRY_SYNONYMS = {
     "Municipal":   "الشؤون البلدية البلدية الأمانة المدن",
     "Commerce":    "التجارة الأعمال الشركات الاقتصاد",
 }
+
+# Arabic display values for the English data fields.
+STATUS_AR = {"Active": "نشط", "Planning": "قيد التخطيط", "Completed": "مكتمل"}
+CATEGORY_AR = {
+    "Business": "الأعمال", "Construction": "الإنشاءات", "Licensing": "التراخيص",
+    "Assessment": "التقييم", "Registration": "التسجيل",
+}
+
+
+def ar_ministry(name: str) -> str:
+    return MINISTRY_AR.get(name, name)
+
+
+def ar_days(n: int) -> str:
+    """Grammatically-correct Arabic for a number of working days."""
+    if n == 1:
+        return "يوم عمل واحد"
+    if n == 2:
+        return "يوما عمل"
+    if 3 <= n <= 10:
+        return f"{n} أيام عمل"
+    return f"{n} يوم عمل"  # 11+ uses the singular (tamyeez)
+
+
+def ar_money(amount: str) -> str:
+    """Display monetary amounts in Arabic: '500M SAR' -> '500 مليون ريال'."""
+    m = re.match(r"\s*([\d.,]+)\s*([MB]?)\s*SAR\s*$", amount)
+    if not m:
+        return amount
+    num, scale = m.group(1), m.group(2)
+    unit = {"M": " مليون", "B": " مليار", "": ""}[scale]
+    return f"{num}{unit} ريال"
 
 AFFIRMATIVES = {
     # فصحى / رسمية
@@ -217,7 +250,7 @@ def format_project_list(projects: list) -> str:
     for i, p in enumerate(projects, 1):
         lines.append(
             f"{i}. **{p['name']}**\n"
-            f"   - الوزارة: {p['ministry']} | الميزانية: {p['budget']} | الحالة: {p['status']}"
+            f"   - الوزارة: {ar_ministry(p['ministry'])} | الميزانية: {ar_money(p['budget'])} | الحالة: {STATUS_AR.get(p['status'], p['status'])}"
         )
     lines.append("\nاختر رقماً من القائمة للحصول على التفاصيل الكاملة.")
     return "\n".join(lines)
@@ -228,7 +261,7 @@ def format_service_list(services: list) -> str:
     for i, s in enumerate(services, 1):
         lines.append(
             f"{i}. **{s['name']}**\n"
-            f"   - الوزارة: {s['ministry']} | التصنيف: {s['category']} | الرسوم: {s['fee']}"
+            f"   - الوزارة: {ar_ministry(s['ministry'])} | التصنيف: {CATEGORY_AR.get(s['category'], s['category'])} | الرسوم: {ar_money(s['fee'])}"
         )
     lines.append("\nاختر رقماً من القائمة للحصول على التفاصيل الكاملة.")
     return "\n".join(lines)
@@ -238,9 +271,9 @@ def format_project_detail(p: dict) -> str:
     return (
         f"**تفاصيل المشروع: {p['name']}**\n\n"
         f"- **الرقم التعريفي:** {p['id']}\n"
-        f"- **الوزارة:** {p['ministry']}\n"
-        f"- **الميزانية:** {p['budget']}\n"
-        f"- **الحالة:** {p['status']}\n"
+        f"- **الوزارة:** {ar_ministry(p['ministry'])}\n"
+        f"- **الميزانية:** {ar_money(p['budget'])}\n"
+        f"- **الحالة:** {STATUS_AR.get(p['status'], p['status'])}\n"
         f"- **مدير المشروع:** {p['lead']}\n"
         f"- **آخر تحديث:** 2026-06-15\n"
         f"- **المراحل:** جمع المتطلبات ✓ | اختيار الموردين ⏳ | إطلاق تجريبي Q4 2026"
@@ -251,10 +284,10 @@ def format_service_detail(s: dict) -> str:
     return (
         f"**تفاصيل الخدمة: {s['name']}**\n\n"
         f"- **الرقم التعريفي:** {s['id']}\n"
-        f"- **الوزارة:** {s['ministry']}\n"
-        f"- **التصنيف:** {s['category']}\n"
-        f"- **الرسوم:** {s['fee']}\n"
-        f"- **مدة المعالجة:** {s['processing_days']} أيام عمل\n"
+        f"- **الوزارة:** {ar_ministry(s['ministry'])}\n"
+        f"- **التصنيف:** {CATEGORY_AR.get(s['category'], s['category'])}\n"
+        f"- **الرسوم:** {ar_money(s['fee'])}\n"
+        f"- **مدة المعالجة:** {ar_days(s['processing_days'])}\n"
         f"- **المستندات المطلوبة:** الهوية الوطنية، نموذج الطلب، المستندات الداعمة\n\n"
         f"هل تريد تقديم طلب لهذه الخدمة؟"
     )
@@ -266,7 +299,7 @@ def format_ministry(name: str, info: dict) -> str:
         f"**معلومات وزارة {ar_name}**\n\n"
         f"- **الوزير:** {info['head']}\n"
         f"- **عدد الموظفين:** {info['employees']:,}\n"
-        f"- **الميزانية السنوية:** {info['annual_budget']}\n"
+        f"- **الميزانية السنوية:** {ar_money(info['annual_budget'])}\n"
         f"- **تأسست عام:** {info['established']}"
     )
 
@@ -277,11 +310,11 @@ def format_report(s: dict, name: str, nid: str) -> str:
         f"| البند | القيمة |\n"
         f"|---|---|\n"
         f"| الخدمة | {s['name']} |\n"
-        f"| الوزارة | {s['ministry']} |\n"
+        f"| الوزارة | {ar_ministry(s['ministry'])} |\n"
         f"| مقدم الطلب | {name} |\n"
         f"| رقم الهوية | {nid} |\n"
-        f"| الرسوم | {s['fee']} |\n"
-        f"| مدة المعالجة | {s['processing_days']} أيام عمل |\n\n"
+        f"| الرسوم | {ar_money(s['fee'])} |\n"
+        f"| مدة المعالجة | {ar_days(s['processing_days'])} |\n\n"
         f"هل تؤكد تقديم الطلب؟ (اكتب أي كلمة موافقة للتنفيذ، أو 'لا' للإلغاء)"
     )
 
@@ -293,7 +326,7 @@ def format_success(s: dict, name: str) -> str:
         f"- **رقم المرجع:** `{ref}`\n"
         f"- **الخدمة:** {s['name']}\n"
         f"- **مقدم الطلب:** {name}\n"
-        f"- **المدة المتوقعة:** {s['processing_days']} أيام عمل\n\n"
+        f"- **المدة المتوقعة:** {ar_days(s['processing_days'])}\n\n"
         f"احتفظ برقم المرجع **{ref}** لمتابعة طلبك."
     )
 
@@ -576,7 +609,15 @@ def main():
     print("=" * 60)
     print("  Type 'exit' or 'quit' to end the session.")
 
-    agent = build()
+    try:
+        agent = build()
+    except Exception as e:
+        print("\n  [خطأ] تعذّر الاتصال بـ Ollama أو تحميل النماذج.")
+        print("  تأكد من الخطوات التالية ثم أعد المحاولة:")
+        print("    1) تشغيل الخدمة:  ollama serve")
+        print("    2) تنزيل النماذج: ollama pull llama3.1 && ollama pull nomic-embed-text")
+        print(f"\n  التفاصيل التقنية: {e}\n")
+        return
     print("\n  Ready! Start chatting.\n")
 
     while True:
