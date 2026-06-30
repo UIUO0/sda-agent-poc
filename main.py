@@ -6,7 +6,6 @@ Architecture: Python state machine handles all flow logic.
 LLM is used only for: intent detection, greeting responses, and Arabic formatting.
 """
 
-import json
 import math
 import random
 import re
@@ -99,6 +98,17 @@ def ar_normalize(s: str) -> str:
     return s.strip().lower()
 
 
+def ar_content_words(text: str) -> set:
+    """Normalized word set with the definite article 'ال' stripped,
+    so 'البناء' and 'بناء' compare equal during matching."""
+    out = set()
+    for w in ar_normalize(text).split():
+        if w.startswith("ال") and len(w) > 4:
+            w = w[2:]
+        out.add(w)
+    return out
+
+
 def ar_money(amount: str) -> str:
     """Display monetary amounts in Arabic: '500M SAR' -> '500 مليون ريال'."""
     m = re.match(r"\s*([\d.,]+)\s*([MB]?)\s*SAR\s*$", amount)
@@ -107,6 +117,7 @@ def ar_money(amount: str) -> str:
     num, scale = m.group(1), m.group(2)
     unit = {"M": " مليون", "B": " مليار", "": ""}[scale]
     return f"{num}{unit} ريال"
+
 
 AFFIRMATIVES = {
     # فصحى / رسمية
@@ -214,11 +225,6 @@ Examples:
   "معلومات عن وزارة الصحة" → MINISTRY_INFO
   "هلا" → GREETING"""
 
-FORMAT_SYSTEM = """You are a helpful Arabic assistant for a Saudi government portal.
-Format the given data as a clean, professional Arabic response.
-Use bold labels, bullet points, and clear structure.
-Reply ONLY in Arabic. Keep it concise."""
-
 
 def detect_intent(llm: ChatOllama, text: str) -> str:
     msgs = [SystemMessage(content=INTENT_SYSTEM), HumanMessage(content=text)]
@@ -228,14 +234,6 @@ def detect_intent(llm: ChatOllama, text: str) -> str:
         if intent in result:
             return intent
     return "OTHER"
-
-
-def llm_format(llm: ChatOllama, data: str, instruction: str) -> str:
-    msgs = [
-        SystemMessage(content=FORMAT_SYSTEM),
-        HumanMessage(content=f"{instruction}\n\nData:\n{data}"),
-    ]
-    return llm.invoke(msgs).content.strip()
 
 
 # Fixed welcome message — hardcoded so the model never invents capabilities
@@ -249,10 +247,6 @@ WELCOME_MESSAGE = (
     "• تقديم طلب خدمة حكومية\n\n"
     "بماذا تريد أن أساعدك؟"
 )
-
-
-def greeting_reply(llm: ChatOllama) -> str:
-    return WELCOME_MESSAGE
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +379,7 @@ class SDAAgent:
         if any(h in low for h in _NO_HINTS):
             return "no"
 
-        # 3) LLM fallback for ambiguous / longer sentences
+        # 4) LLM fallback for ambiguous / longer sentences
         prompt = (
             "The user was asked a yes/no confirmation question in an Arabic government portal. "
             "Their reply is: \"" + text + "\"\n"
@@ -397,12 +391,6 @@ class SDAAgent:
         if "NO" in result:
             return "no"
         return "unclear"
-
-    def _is_yes(self, text: str) -> bool:
-        return self._classify_intent(text) == "yes"
-
-    def _is_no(self, text: str) -> bool:
-        return self._classify_intent(text) == "no"
 
     def _parse_number(self, text: str) -> Optional[int]:
         arabic_digits = {"٠": 0, "١": 1, "٢": 2, "٣": 3, "٤": 4, "٥": 5, "٦": 6, "٧": 7, "٨": 8, "٩": 9}
@@ -442,8 +430,9 @@ class SDAAgent:
     def _resolve_selection(self, text: str) -> Optional[dict]:
         """
         Resolve the user's choice from the last shown list — adaptively.
-        Tries, in order: (1) a number, (2) an exact/substring name match,
-        (3) the best semantic match if the input clearly refers to one item.
+        Tries, in order: (1) a number, (2a) normalized substring name match,
+        (2b) word overlap, (2c) a distinctive word unique to one item,
+        (3) the best constrained semantic match.
         Returns the chosen record, or None if nothing confidently matches.
         """
         s = self.state
@@ -467,18 +456,10 @@ class SDAAgent:
 
             # 2b) word overlap — "ايه ذي الاولى رخصة البناء" should match
             #     "طلب رخصة بناء" even with different word order / "ال" prefix.
-            def _content_words(txt: str) -> set:
-                out = set()
-                for w in ar_normalize(txt).split():
-                    if w.startswith("ال") and len(w) > 4:
-                        w = w[2:]            # strip definite article
-                    out.add(w)
-                return out
-
-            user_words = _content_words(text)
+            user_words = ar_content_words(text)
             best_item, best_overlap = None, 0.0
             for item in s.last_list:
-                name_words = _content_words(item["name"])
+                name_words = ar_content_words(item["name"])
                 if not name_words:
                     continue
                 overlap = len(name_words & user_words) / len(name_words)
@@ -493,7 +474,7 @@ class SDAAgent:
             #     Jeddah project; "ابي البناء" -> building permit.
             matches = [
                 item for item in s.last_list
-                if {w for w in (_content_words(item["name"]) & user_words) if len(w) >= 3}
+                if {w for w in (ar_content_words(item["name"]) & user_words) if len(w) >= 3}
             ]
             if len(matches) == 1:
                 return matches[0]
