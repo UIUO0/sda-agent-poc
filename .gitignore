@@ -30,3 +30,9 @@ Thumbs.db
 # RAG
 chroma_db/
 feedback.jsonl
+
+# مرفقات الجلسة المؤقتة
+.attach_tmp/
+
+# صلاحيات الوصول (تحتوي كلمات مرور — لا تُرفع)
+access.json

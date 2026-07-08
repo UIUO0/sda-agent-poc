@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة الإدارة — نظام RAG</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --card: #ffffff; --ink: #1a1a2e; --muted: #8a8a9a;
+    --accent: #5b5bd6; --accent-soft: #eeeefb; --ok: #2fb573; --danger: #e5484d;
+    --danger-soft: #fdeeee; --border: #ebebef; --radius: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: -apple-system, "SF Arabic", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--ink); min-height: 100dvh;
+  }
+  header {
+    padding: 14px 22px; background: var(--card); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 16px; font-weight: 650; }
+  .badge {
+    font-size: 11px; color: var(--muted); background: var(--bg);
+    border: 1px solid var(--border); padding: 3px 10px; border-radius: 99px;
+    text-decoration: none;
+  }
+  a.badge:hover { color: var(--accent); border-color: var(--accent); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  /* شاشة الدخول */
+  #login { max-width: 360px; margin: 12vh auto; background: var(--card);
+           border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; text-align: center; }
+  #login h2 { font-size: 18px; margin-bottom: 6px; }
+  #login p { font-size: 12.5px; color: var(--muted); margin-bottom: 18px; }
+  input, select {
+    font: inherit; font-size: 13px; width: 100%; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--ink);
+  }
+  button {
+    font: inherit; cursor: pointer; border: 0; border-radius: 10px;
+    padding: 9px 16px; font-size: 13px; font-weight: 600; background: var(--accent); color: #fff;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: .9; }
+  button.ghost { background: var(--bg); color: var(--ink); border: 1px solid var(--border); font-weight: 500; }
+  button.danger { background: var(--danger); }
+  button.sm { padding: 5px 10px; font-size: 12px; }
+  .err { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 16px; }
+
+  /* التبويبات */
+  #tabs { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; }
+  #tabs button { background: var(--card); color: var(--muted); border: 1px solid var(--border); font-weight: 600; }
+  #tabs button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .panel { display: none; }
+  .panel.on { display: block; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+          padding: 18px 20px; margin-bottom: 16px; }
+  .card h3 { font-size: 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+
+  /* شبكة الإحصاءات */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 12px; }
+  .stat { background: var(--bg); border-radius: 12px; padding: 14px; text-align: center; }
+  .stat .n { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .stat .l { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: right; padding: 9px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td .row-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .chunk { background: var(--bg); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 12.5px; line-height: 1.7; }
+  .chunk .h { color: var(--muted); font-size: 11px; margin-bottom: 5px; display: flex; justify-content: space-between; gap: 8px; }
+  .pill { background: var(--accent-soft); color: var(--accent); border-radius: 99px; padding: 2px 8px; font-size: 11px; }
+  .bar { height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+           background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 10px;
+           font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; }
+  .toast.show { opacity: 1; }
+  .toast.err { background: var(--danger); }
+  .log { max-height: 420px; overflow-y: auto; }
+  #modal { display: none; }
+  .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 30;
+                display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal-card { background: var(--card); border-radius: var(--radius); padding: 24px;
+                width: 100%; max-width: 440px; max-height: 85vh; overflow-y: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔐 لوحة الإدارة</h1>
+  <span class="badge">نظام RAG محلي</span>
+  <a class="badge" href="/" style="margin-inline-start:auto">↩︎ واجهة المستخدم</a>
+</header>
+
+<!-- شاشة الدخول -->
+<div id="login">
+  <h2>الدخول للوحة الإدارة</h2>
+  <p>أدخل كلمة مرور المشرف للمتابعة</p>
+  <input id="pass" type="password" placeholder="كلمة المرور" autofocus>
+  <div style="margin-top:12px"><button id="login-btn" style="width:100%">دخول</button></div>
+  <div class="err" id="login-err"></div>
+</div>
+
+<!-- المحتوى بعد الدخول -->
+<div class="wrap" id="app" style="display:none">
+  <div id="tabs">
+    <button data-t="overview" class="on">📊 نظرة عامة</button>
+    <button data-t="files">🗂️ الملفات</button>
+    <button data-t="access">🔑 صلاحيات الوصول</button>
+    <button data-t="playground">🧪 تجربة النموذج</button>
+    <button data-t="search">🔍 اختبار الاسترجاع</button>
+    <button data-t="settings">⚙️ الإعدادات</button>
+    <button data-t="feedback">💬 التقييمات</button>
+  </div>
+
+  <!-- نظرة عامة -->
+  <div class="panel on" data-p="overview">
+    <div class="card">
+      <h3>📊 إحصاءات النظام</h3>
+      <div class="stats" id="ov-stats">…</div>
+    </div>
+    <div class="card">
+      <h3>ℹ️ التهيئة الحالية</h3>
+      <div id="ov-config" class="muted">…</div>
+    </div>
+  </div>
+
+  <!-- الملفات -->
+  <div class="panel" data-p="files">
+    <div class="card">
+      <h3>⬆️ رفع ملف جديد للفهرسة</h3>
+      <label class="ghost" style="display:inline-block;padding:9px 16px;border-radius:10px;cursor:pointer;border:1px dashed var(--accent);color:var(--accent);font-weight:600">
+        📎 اختر ملفًا (PDF · Word · نص · Markdown)
+        <input id="up-input" type="file" accept=".pdf,.docx,.txt,.md,.markdown" hidden>
+      </label>
+      <div id="up-status" class="muted" style="margin-top:10px"></div>
+      <div class="bar" id="up-bar" style="display:none"><i></i></div>
+    </div>
+    <div class="card">
+      <h3>🗂️ الملفات المفهرسة
+        <button class="ghost sm" id="reindex-btn" style="margin-inline-start:auto">🔄 إعادة فهرسة الكل</button>
+        <button class="danger sm" id="clear-btn">🗑️ مسح القاعدة</button>
+      </h3>
+      <div id="reindex-status" class="muted" style="margin-bottom:10px"></div>
+      <table id="files-tbl"><thead><tr>
+        <th>الملف</th><th>المقاطع</th><th>الصفحات</th><th>الأقسام</th><th>إجراءات</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card" id="chunks-card" style="display:none">
+      <h3>📄 مقاطع الملف: <span id="chunks-title"></span>
+        <button class="ghost sm" id="chunks-close" style="margin-inline-start:auto">✕ إغلاق</button>
+      </h3>
+      <div id="chunks-list"></div>
+    </div>
+  </div>
+
+  <!-- صلاحيات الوصول -->
+  <div class="panel" data-p="access">
+    <p class="muted" style="margin-bottom:14px">الصلاحيات تُمنح بربط <b>مجموعات المستخدمين</b> بـ<b>مجموعات البيانات</b>. المستخدمون ينتمون لمجموعات، والملفات تُضاف لمجموعات بيانات. المجموعة «<b>كل البيانات</b>» ثابتة وتعني الوصول لكل الملفات.</p>
+    <div class="grid2" style="align-items:start">
+      <div class="card">
+        <h3>🗃️ مجموعات البيانات
+          <button class="ghost sm" onclick="editDataGroup()" style="margin-inline-start:auto">＋ جديدة</button>
+        </h3>
+        <div id="dg-list"></div>
+      </div>
+      <div class="card">
+        <h3>👥 مجموعات المستخدمين
+          <button class="ghost sm" onclick="editUserGroup()" style="margin-inline-start:auto">＋ جديدة</button>
+        </h3>
+        <div id="ug-list"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>🧑‍💼 المستخدمون
+        <button class="ghost sm" onclick="editUser()" style="margin-inline-start:auto">＋ مستخدم جديد</button>
+      </h3>
+      <table id="users-tbl"><thead><tr>
+        <th>اسم المستخدم</th><th>مجموعة المستخدمين</th><th>الوصول</th><th>إجراءات</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <!-- تجربة النموذج -->
+  <div class="panel" data-p="playground">
+    <div class="card">
+      <h3>🧪 تجربة النموذج</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="field" style="margin:0"><label>مجموعة البيانات</label><select id="pg-dataset" style="min-width:160px"></select></div>
+        <div class="field" style="margin:0"><label>المصدر</label>
+          <select id="pg-source"><option value="docs">📚 من مستندات الهيئة</option><option value="general" disabled>🌐 معرفة عامة (قريبًا)</option></select></div>
+        <div class="field" style="margin:0"><label>المستوى</label>
+          <select id="pg-depth"><option value="fast">🚀 سريع</option><option value="balanced" selected>⚖️ متوازن</option><option value="deep">🔬 عميق</option><option value="max">🎯 دقة قصوى</option></select></div>
+      </div>
+      <div id="pg-chat" style="max-height:420px;overflow-y:auto;background:var(--bg);border-radius:12px;padding:14px;margin-bottom:12px;min-height:80px"></div>
+      <div style="display:flex;gap:8px">
+        <input id="pg-q" placeholder="اكتب سؤالاً لاختبار النموذج…">
+        <button id="pg-send" style="white-space:nowrap">إرسال</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- اختبار الاسترجاع -->
+  <div class="panel" data-p="search">
+    <div class="card">
+      <h3>🔍 اختبار الاسترجاع الدلالي</h3>
+      <p class="muted" style="margin-bottom:12px">جرّب استعلامًا وشاهد المقاطع المسترجعة ودرجات المطابقة (لا يشغّل النموذج).</p>
+      <div style="display:flex;gap:8px">
+        <input id="s-q" placeholder="اكتب استعلامًا…">
+        <input id="s-k" type="number" value="8" min="1" max="24" style="width:70px" title="عدد المقاطع">
+        <button id="s-btn" style="white-space:nowrap">بحث</button>
+      </div>
+      <div id="s-results" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <!-- الإعدادات -->
+  <div class="panel" data-p="settings">
+    <div class="card">
+      <h3>⚙️ إعدادات وقت التشغيل</h3>
+      <p class="muted" style="margin-bottom:14px">تُطبَّق فورًا على الجلسة الحالية فقط (لا تُحفظ دائمًا — للتغيير الدائم عدّل query.py).</p>
+      <div class="grid2">
+        <div class="field">
+          <label>نموذج التوليد (LLM)</label>
+          <select id="set-llm"></select>
+        </div>
+        <div class="field">
+          <label>المستوى الافتراضي</label>
+          <select id="set-depth">
+            <option value="fast">🚀 سريع</option>
+            <option value="balanced">⚖️ متوازن</option>
+            <option value="deep">🔬 عميق</option>
+            <option value="max">🎯 دقة قصوى</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>حد الصلة MAX_DISTANCE (0–1، الأقل أدق)</label>
+          <input id="set-dist" type="number" step="0.01" min="0" max="2">
+        </div>
+        <div class="field">
+          <label>كلمات المقطع (تُطبَّق على الفهرسة القادمة)</label>
+          <input id="set-chunk" type="number" min="50" max="1000">
+        </div>
+        <div class="field">
+          <label>تداخل المقاطع (كلمات)</label>
+          <input id="set-overlap" type="number" min="0" max="400">
+        </div>
+      </div>
+      <button id="set-save">💾 حفظ الإعدادات</button>
+      <span class="muted" id="set-note" style="margin-inline-start:10px"></span>
+    </div>
+  </div>
+
+  <!-- التقييمات -->
+  <div class="panel" data-p="feedback">
+    <div class="card">
+      <h3>💬 سجل تقييمات المستخدمين</h3>
+      <div class="log"><table id="fb-tbl"><thead><tr>
+        <th>الوقت</th><th>السؤال</th><th>المستوى</th><th>التقييم</th><th>الزمن (ث)</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let PASS = '';
+const $ = s => document.querySelector(s);
+const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function toast(msg, err) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+  setTimeout(() => t.className = 'toast', 2200);
+}
+
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({ 'X-Admin-Pass': PASS }, opts.headers || {});
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('خطأ ' + res.status));
+  return data;
+}
+
+/* ---- الدخول ---- */
+async function doLogin() {
+  PASS = $('#pass').value;
+  try {
+    await api('/admin/api/overview');
+    $('#login').style.display = 'none';
+    $('#app').style.display = 'block';
+    loadOverview(); loadSettings();
+  } catch (e) {
+    $('#login-err').textContent = e.message;
+  }
+}
+$('#login-btn').addEventListener('click', doLogin);
+$('#pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+/* ---- التبويبات ---- */
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.dataset.p === b.dataset.t));
+  if (b.dataset.t === 'files') loadFiles();
+  if (b.dataset.t === 'feedback') loadFeedback();
+  if (b.dataset.t === 'access') loadAccess();
+  if (b.dataset.t === 'playground') loadPlayground();
+}));
+
+/* ---- نظرة عامة ---- */
+async function loadOverview() {
+  const d = await api('/admin/api/overview');
+  $('#ov-stats').innerHTML = [
+    ['الملفات', d.files_count], ['إجمالي المقاطع', d.total_chunks],
+    ['تقييمات', d.feedback_count], ['نماذج Ollama', d.ollama_models.length],
+  ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+  $('#ov-config').innerHTML = `
+    نموذج التوليد: <b>${esc(d.llm)}</b> · نموذج التضمين: <b>${esc(d.embed)}</b> (${d.dims} بُعد)<br>
+    حد الصلة: <b>${d.max_distance}</b> · المستوى الافتراضي: <b>${esc(d.default_depth)}</b><br>
+    كلمات المقطع: <b>${d.chunk_words}</b> · التداخل: <b>${d.overlap_words}</b><br>
+    مرفقات الجلسة الحالية: <b>${d.attached_session.length ? d.attached_session.map(esc).join('، ') : '—'}</b>`;
+}
+
+/* ---- الملفات ---- */
+async function loadFiles() {
+  const d = await api('/admin/api/files');
+  const tb = $('#files-tbl tbody');
+  if (!d.files.length) { tb.innerHTML = '<tr><td colspan="5" class="muted">لا توجد ملفات مفهرسة.</td></tr>'; return; }
+  tb.innerHTML = d.files.map(f => `<tr>
+    <td><b>${esc(f.name)}</b></td><td>${f.chunks}</td><td>${f.pages_count}</td><td>${f.headings_count}</td>
+    <td><div class="row-btns">
+      <button class="ghost sm" onclick="viewChunks('${esc(f.name)}')">👁️ المقاطع</button>
+      <button class="ghost sm" onclick="renameFile('${esc(f.name)}')">✏️ إعادة تسمية</button>
+      <button class="danger sm" onclick="deleteFile('${esc(f.name)}')">🗑️ حذف</button>
+    </div></td></tr>`).join('');
+}
+
+async function viewChunks(name) {
+  const d = await api('/admin/api/chunks?source=' + encodeURIComponent(name));
+  $('#chunks-card').style.display = 'block';
+  $('#chunks-title').textContent = name + ' (' + d.chunks.length + ' مقطع)';
+  $('#chunks-list').innerHTML = d.chunks.map(c => `<div class="chunk">
+    <div class="h"><span>مقطع #${c.chunk} ${c.heading ? '· ' + esc(c.heading) : ''}</span>
+      <span><span class="pill">ص. ${esc(c.pages)}</span>
+      <button class="danger sm" onclick="deleteChunk('${esc(c.id)}','${esc(name)}')">حذف</button></span></div>
+    ${esc(c.text)}</div>`).join('');
+  $('#chunks-card').scrollIntoView({ behavior: 'smooth' });
+}
+$('#chunks-close').addEventListener('click', () => $('#chunks-card').style.display = 'none');
+
+async function deleteChunk(id, name) {
+  if (!confirm('حذف هذا المقطع نهائيًا؟')) return;
+  try { await api('/admin/api/delete_chunk', { method: 'POST', body: JSON.stringify({ id }) });
+    toast('حُذف المقطع'); viewChunks(name); loadFiles(); } catch (e) { toast(e.message, true); }
+}
+async function deleteFile(name) {
+  if (!confirm('حذف الملف «' + name + '» وكل مقاطعه من القاعدة (وحذف الملف من مجلد documents)؟')) return;
+  try { await api('/admin/api/delete_file', { method: 'POST', body: JSON.stringify({ name }) });
+    toast('حُذف الملف'); loadFiles(); $('#chunks-card').style.display = 'none'; } catch (e) { toast(e.message, true); }
+}
+async function renameFile(name) {
+  const nn = prompt('الاسم الجديد للملف:', name);
+  if (!nn || nn === name) return;
+  try { await api('/admin/api/rename_file', { method: 'POST', body: JSON.stringify({ name, new_name: nn }) });
+    toast('أُعيدت التسمية'); loadFiles(); } catch (e) { toast(e.message, true); }
+}
+
+/* رفع ملف */
+$('#up-input').addEventListener('change', async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  const st = $('#up-status'), bar = $('#up-bar'), fill = bar.querySelector('i');
+  bar.style.display = 'block'; fill.style.width = '5%';
+  st.textContent = '⬆️ جاري الرفع: ' + file.name;
+  try {
+    const res = await fetch('/admin/api/upload', { method: 'POST',
+      headers: { 'X-Admin-Pass': PASS, 'X-Filename': encodeURIComponent(file.name) }, body: file });
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let tail = '';
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      tail += dec.decode(value, { stream: true }); const lines = tail.split('\n'); tail = lines.pop();
+      for (const ln of lines) { if (!ln.trim()) continue; const m = JSON.parse(ln);
+        if (m.status === 'saved') { fill.style.width = '10%'; st.textContent = '⚙️ جاري التقطيع والتضمين…'; }
+        else if (m.total) { fill.style.width = Math.round(m.done / m.total * 100) + '%'; st.textContent = 'فهرسة ' + m.done + ' / ' + m.total; }
+        else if (m.ok) { fill.style.width = '100%'; st.textContent = '✅ تمت فهرسة ' + m.name + ' (' + m.chunks + ' مقطع)'; toast('تمت الفهرسة'); loadFiles(); }
+        else if (m.error) { st.textContent = '⚠️ ' + m.error; toast(m.error, true); }
+      }
+    }
+  } catch (err) { st.textContent = '⚠️ فشل الرفع'; toast('فشل الرفع', true); }
+  setTimeout(() => { bar.style.display = 'none'; fill.style.width = '0'; }, 1500);
+});
+
+/* إعادة فهرسة الكل */
+$('#reindex-btn').addEventListener('click', async () => {
+  if (!confirm('إعادة فهرسة كل ملفات مجلد documents/ من الصفر؟ ستُمسح الفهرسة الحالية وتُبنى من جديد.')) return;
+  const st = $('#reindex-status');
+  try {
+    const res = await fetch('/admin/api/reindex', { method: 'POST', headers: { 'X-Admin-Pass': PASS } });
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let tail = '';
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      tail += dec.decode(value, { stream: true }); const lines = tail.split('\n'); tail = lines.pop();
+      for (const ln of lines) { if (!ln.trim()) continue; const m = JSON.parse(ln);
+        if (m.phase === 'clear') st.textContent = '🧹 مسح الفهرسة القديمة…';
+        else if (m.phase === 'file') st.textContent = `📄 (${m.i}/${m.n}) فهرسة: ${m.file}`;
+        else if (m.total) st.textContent += ` — ${m.done}/${m.total}`;
+        else if (m.ok) { st.textContent = '✅ اكتملت إعادة الفهرسة (' + m.files + ' ملف)'; toast('اكتملت الفهرسة'); loadFiles(); }
+        else if (m.error) { st.textContent = '⚠️ ' + m.error; toast(m.error, true); }
+      }
+    }
+  } catch (e) { st.textContent = '⚠️ فشل'; toast('فشل إعادة الفهرسة', true); }
+});
+
+/* مسح القاعدة */
+$('#clear-btn').addEventListener('click', async () => {
+  if (!confirm('⚠️ مسح كامل القاعدة! سيُحذف كل المقاطع المفهرسة نهائيًا. متأكد؟')) return;
+  if (!confirm('تأكيد أخير: لا يمكن التراجع. هل تريد المتابعة؟')) return;
+  try { await api('/admin/api/clear_db', { method: 'POST', body: '{}' }); toast('مُسحت القاعدة'); loadFiles(); loadOverview(); }
+  catch (e) { toast(e.message, true); }
+});
+
+/* ---- اختبار الاسترجاع ---- */
+$('#s-btn').addEventListener('click', async () => {
+  const q = $('#s-q').value.trim(); if (!q) return;
+  const k = parseInt($('#s-k').value) || 8;
+  $('#s-results').innerHTML = '<span class="muted">جاري البحث…</span>';
+  try {
+    const d = await api('/admin/api/search', { method: 'POST', body: JSON.stringify({ q, k }) });
+    if (!d.hits.length) { $('#s-results').innerHTML = '<span class="muted">لا نتائج ذات صلة.</span>'; return; }
+    $('#s-results').innerHTML =
+      (d.section ? `<div class="muted" style="margin-bottom:8px">القسم المطابق: <b>${esc(d.section)}</b> · مرشحون: ${d.candidates}</div>` : '') +
+      d.hits.map(h => `<div class="chunk"><div class="h">
+        <span>${esc(h.source)} ${h.heading ? '· ' + esc(h.heading) : ''}</span>
+        <span><span class="pill">${h.score}%</span> <span class="pill">ص. ${esc(h.pages)}</span></span>
+      </div>${esc(h.text)}</div>`).join('');
+  } catch (e) { $('#s-results').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+});
+$('#s-q').addEventListener('keydown', e => { if (e.key === 'Enter') $('#s-btn').click(); });
+
+/* ---- الإعدادات ---- */
+async function loadSettings() {
+  const d = await api('/admin/api/overview');
+  const sel = $('#set-llm');
+  const models = d.ollama_models.length ? d.ollama_models : [d.llm];
+  sel.innerHTML = models.map(m => `<option value="${esc(m)}" ${m === d.llm ? 'selected' : ''}>${esc(m)}</option>`).join('');
+  $('#set-depth').value = d.default_depth;
+  $('#set-dist').value = d.max_distance;
+  $('#set-chunk').value = d.chunk_words;
+  $('#set-overlap').value = d.overlap_words;
+}
+$('#set-save').addEventListener('click', async () => {
+  const body = {
+    llm: $('#set-llm').value, default_depth: $('#set-depth').value,
+    max_distance: parseFloat($('#set-dist').value),
+    chunk_words: parseInt($('#set-chunk').value), overlap_words: parseInt($('#set-overlap').value),
+  };
+  try { const d = await api('/admin/api/settings', { method: 'POST', body: JSON.stringify(body) });
+    $('#set-note').textContent = '✅ حُفظت';
+    setTimeout(() => $('#set-note').textContent = '', 2000);
+    toast('حُفظت الإعدادات'); loadOverview();
+  } catch (e) { toast(e.message, true); }
+});
+
+/* ---- صلاحيات الوصول ---- */
+let ACCESS = null;
+async function loadAccess() {
+  try {
+    ACCESS = await api('/admin/api/access');
+  } catch (e) {
+    toast('تعذّر تحميل الصلاحيات: ' + e.message + ' — أعد تشغيل الخادم', true);
+    return false;
+  }
+  renderDataGroups(); renderUserGroups(); renderUsers();
+  return true;
+}
+async function ensureAccess() { return ACCESS ? true : await loadAccess(); }
+function renderDataGroups() {
+  const a = ACCESS, box = $('#dg-list');
+  let html = `<div class="chunk"><b>🔒 ${esc(a.all_data)}</b> <span class="muted">(كل الملفات — ثابتة)</span></div>`;
+  html += Object.entries(a.data_groups).map(([name, files]) => `<div class="chunk">
+    <div class="h"><b>${esc(name)}</b>
+      <span><button class="ghost sm" onclick='editDataGroup(${JSON.stringify(name)})'>تعديل</button>
+      <button class="danger sm" onclick='delDataGroup(${JSON.stringify(name)})'>حذف</button></span></div>
+    <span class="muted">${files.length} ملف${files.length ? ': ' + files.map(esc).join('، ') : ''}</span></div>`).join('');
+  box.innerHTML = html;
+}
+function renderUserGroups() {
+  const a = ACCESS, box = $('#ug-list');
+  const rows = Object.entries(a.user_groups);
+  box.innerHTML = rows.length ? rows.map(([name, g]) => `<div class="chunk">
+    <div class="h"><b>${esc(name)}</b>
+      <span><button class="ghost sm" onclick='editUserGroup(${JSON.stringify(name)})'>تعديل</button>
+      <button class="danger sm" onclick='delUserGroup(${JSON.stringify(name)})'>حذف</button></span></div>
+    <span class="muted">الوصول: ${(g.data_groups || []).length ? (g.data_groups).map(esc).join('، ') : 'لا شيء'}</span></div>`).join('')
+    : '<span class="muted">لا مجموعات مستخدمين بعد.</span>';
+}
+function renderUsers() {
+  const a = ACCESS, tb = $('#users-tbl tbody');
+  const rows = Object.entries(a.users);
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="4" class="muted">لا مستخدمين بعد.</td></tr>'; return; }
+  tb.innerHTML = rows.map(([u, v]) => {
+    const g = a.user_groups[v.group];
+    const acc = g ? ((g.data_groups || []).includes(a.all_data) ? 'كل البيانات' : (g.data_groups || []).join('، ') || 'لا شيء') : '—';
+    return `<tr><td><b>${esc(u)}</b></td><td>${esc(v.group) || '—'}</td><td class="muted">${esc(acc)}</td>
+      <td><div class="row-btns">
+        <button class="ghost sm" onclick='editUser(${JSON.stringify(u)})'>تعديل</button>
+        <button class="danger sm" onclick='delUser(${JSON.stringify(u)})'>حذف</button></div></td></tr>`;
+  }).join('');
+}
+function checklist(items, checked) {
+  return items.map(it => `<label style="display:block;font-size:12.5px;margin:3px 0"><input type="checkbox" value="${esc(it)}" ${checked.includes(it) ? 'checked' : ''}> ${esc(it)}</label>`).join('') || '<span class="muted">لا عناصر</span>';
+}
+async function editDataGroup(name) {
+  if (!await ensureAccess()) return;
+  const files = name ? (ACCESS.data_groups[name] || []) : [];
+  openModal(name ? 'تعديل مجموعة بيانات' : 'مجموعة بيانات جديدة', `
+    <div class="field"><label>اسم المجموعة</label><input id="m-name" value="${esc(name || '')}"></div>
+    <div class="field"><label>الملفات المضمّنة</label><div style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${checklist(ACCESS.all_files, files)}</div></div>`,
+    async () => {
+      const nm = $('#m-name').value.trim(); if (!nm) return toast('الاسم مطلوب', true);
+      const sel = [...document.querySelectorAll('#modal-body input[type=checkbox]:checked')].map(c => c.value);
+      await api('/admin/api/datagroup_save', { method: 'POST', body: JSON.stringify({ name: nm, old_name: name || '', files: sel }) });
+      toast('حُفظت'); closeModal(); loadAccess();
+    });
+}
+async function delDataGroup(name) { if (!confirm('حذف مجموعة البيانات «' + name + '»؟')) return;
+  await api('/admin/api/datagroup_delete', { method: 'POST', body: JSON.stringify({ name }) }); toast('حُذفت'); loadAccess(); }
+async function editUserGroup(name) {
+  if (!await ensureAccess()) return;
+  const cur = name ? (ACCESS.user_groups[name].data_groups || []) : [];
+  const dgs = [ACCESS.all_data, ...Object.keys(ACCESS.data_groups)];
+  openModal(name ? 'تعديل مجموعة مستخدمين' : 'مجموعة مستخدمين جديدة', `
+    <div class="field"><label>اسم المجموعة</label><input id="m-name" value="${esc(name || '')}"></div>
+    <div class="field"><label>مجموعات البيانات المسموح بها</label><div style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${checklist(dgs, cur)}</div></div>`,
+    async () => {
+      const nm = $('#m-name').value.trim(); if (!nm) return toast('الاسم مطلوب', true);
+      const sel = [...document.querySelectorAll('#modal-body input[type=checkbox]:checked')].map(c => c.value);
+      await api('/admin/api/usergroup_save', { method: 'POST', body: JSON.stringify({ name: nm, old_name: name || '', data_groups: sel }) });
+      toast('حُفظت'); closeModal(); loadAccess();
+    });
+}
+async function delUserGroup(name) { if (!confirm('حذف مجموعة المستخدمين «' + name + '»؟')) return;
+  await api('/admin/api/usergroup_delete', { method: 'POST', body: JSON.stringify({ name }) }); toast('حُذفت'); loadAccess(); }
+async function editUser(username) {
+  if (!await ensureAccess()) return;
+  const cur = username ? ACCESS.users[username] : { group: '' };
+  const groups = Object.keys(ACCESS.user_groups);
+  const opts = ['<option value="">— بلا مجموعة —</option>'].concat(groups.map(g => `<option value="${esc(g)}" ${g === cur.group ? 'selected' : ''}>${esc(g)}</option>`)).join('');
+  openModal(username ? 'تعديل مستخدم' : 'مستخدم جديد', `
+    <div class="field"><label>اسم المستخدم</label><input id="m-name" value="${esc(username || '')}"></div>
+    <div class="field"><label>كلمة المرور ${username ? '(اتركها فارغة للإبقاء)' : ''}</label><input id="m-pass" type="text" placeholder="••••••"></div>
+    <div class="field"><label>مجموعة المستخدمين</label><select id="m-group">${opts}</select></div>`,
+    async () => {
+      const nm = $('#m-name').value.trim(); if (!nm) return toast('الاسم مطلوب', true);
+      const body = { username: nm, old_username: username || '', group: $('#m-group').value, password: $('#m-pass').value };
+      try { await api('/admin/api/user_save', { method: 'POST', body: JSON.stringify(body) }); toast('حُفظ'); closeModal(); loadAccess(); }
+      catch (e) { toast(e.message, true); }
+    });
+}
+async function delUser(username) { if (!confirm('حذف المستخدم «' + username + '»؟')) return;
+  await api('/admin/api/user_delete', { method: 'POST', body: JSON.stringify({ username }) }); toast('حُذف'); loadAccess(); }
+
+/* Modal بسيط */
+function openModal(title, bodyHtml, onSave) {
+  let m = $('#modal');
+  if (!m) { m = document.createElement('div'); m.id = 'modal'; document.body.appendChild(m); }
+  m.innerHTML = `<div class="modal-back"><div class="modal-card">
+    <h3 style="margin-bottom:14px">${esc(title)}</h3>
+    <div id="modal-body">${bodyHtml}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-start;margin-top:16px">
+      <button id="modal-save">💾 حفظ</button><button class="ghost" id="modal-cancel">إلغاء</button></div>
+  </div></div>`;
+  m.style.display = 'block';
+  $('#modal-save').onclick = onSave;
+  $('#modal-cancel').onclick = closeModal;
+}
+function closeModal() { const m = $('#modal'); if (m) m.style.display = 'none'; }
+
+/* ---- تجربة النموذج ---- */
+function loadPlayground() {
+  if (!ACCESS) { loadAccess().then(fillPgDatasets); } else fillPgDatasets();
+}
+function fillPgDatasets() {
+  const dgs = [ACCESS.all_data, ...Object.keys(ACCESS.data_groups)];
+  $('#pg-dataset').innerHTML = dgs.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+}
+function pgAsk() {
+  const q = $('#pg-q').value.trim(); if (!q) return;
+  $('#pg-q').value = '';
+  const chat = $('#pg-chat');
+  chat.insertAdjacentHTML('beforeend', `<div style="margin-bottom:8px"><b>أنت:</b> ${esc(q)}</div>`);
+  const ans = document.createElement('div'); ans.style.marginBottom = '14px';
+  ans.innerHTML = '<b>النموذج:</b> <span class="muted">…</span>'; chat.appendChild(ans); chat.scrollTop = chat.scrollHeight;
+  const p = new URLSearchParams({ pass: PASS, q, depth: $('#pg-depth').value, source: $('#pg-source').value, dataset: $('#pg-dataset').value });
+  const es = new EventSource('/admin/api/ask?' + p.toString());
+  let raw = '', got = false;
+  es.addEventListener('token', e => { if (!got) { ans.innerHTML = '<b>النموذج:</b> '; got = true; } raw += JSON.parse(e.data).t; ans.innerHTML = '<b>النموذج:</b> ' + esc(raw); chat.scrollTop = chat.scrollHeight; });
+  es.addEventListener('sources', e => { const s = JSON.parse(e.data); if (s.length) ans.dataset.src = s.map(x => x.source + (x.pages ? ' ص.' + x.pages : '')).join(' · '); });
+  es.addEventListener('done', () => { es.close(); if (ans.dataset.src) ans.innerHTML += `<div class="muted" style="margin-top:4px;font-size:11px">📎 ${esc(ans.dataset.src)}</div>`; });
+  es.addEventListener('err', e => { es.close(); ans.innerHTML = '<b>النموذج:</b> <span class="err">⚠️ ' + esc(JSON.parse(e.data).msg) + '</span>'; });
+}
+$('#pg-send').addEventListener('click', pgAsk);
+$('#pg-q').addEventListener('keydown', e => { if (e.key === 'Enter') pgAsk(); });
+
+/* ---- التقييمات ---- */
+async function loadFeedback() {
+  const d = await api('/admin/api/feedback');
+  const tb = $('#fb-tbl tbody');
+  if (!d.entries.length) { tb.innerHTML = '<tr><td colspan="5" class="muted">لا توجد تقييمات بعد.</td></tr>'; return; }
+  tb.innerHTML = d.entries.slice().reverse().map(e => `<tr>
+    <td class="muted" style="white-space:nowrap">${esc(e.ts)}</td>
+    <td>${esc(e.question)}</td><td>${esc(e.depth)}</td>
+    <td>${e.rating === 'up' ? '👍' : e.rating === 'down' ? '👎' : esc(e.rating)}</td>
+    <td>${e.elapsed_s ? Number(e.elapsed_s).toFixed(1) : '—'}</td></tr>`).join('');
+}
+</script>
+</body>
+</html>

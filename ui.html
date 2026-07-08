@@ -25,6 +25,8 @@
     font-size: 11px; color: var(--muted); background: var(--bg);
     border: 1px solid var(--border); padding: 3px 10px; border-radius: 99px;
   }
+  a.badge { text-decoration: none; cursor: pointer; }
+  a.badge:hover { color: var(--accent); border-color: var(--accent); }
   #chat {
     flex: 1; overflow-y: auto; padding: 24px 16px 12px;
     display: flex; flex-direction: column; gap: 14px; max-width: 780px;
@@ -113,6 +115,24 @@
   }
   #depth button.on { background: var(--accent); color: #fff; font-weight: 600; }
   #depth button:not(.on):hover { color: var(--accent); }
+  #source-wrap {
+    max-width: 780px; margin: 0 auto 8px; display: flex; justify-content: center;
+    align-items: center; gap: 10px;
+  }
+  #source {
+    display: flex; gap: 0; background: var(--card); border: 1px solid var(--border);
+    border-radius: 99px; padding: 3px;
+  }
+  #source button {
+    border: 0; background: none; cursor: pointer; font: inherit; font-size: 12px;
+    color: var(--muted); padding: 6px 16px; border-radius: 99px; transition: all .2s;
+  }
+  #source button.on { background: var(--accent); color: #fff; font-weight: 600; }
+  #source button:not(.on):hover { color: var(--accent); }
+  #source button:disabled { opacity: .5; cursor: not-allowed; }
+  #source button:disabled:hover { color: var(--muted); }
+  .soon { font-size: 9px; background: var(--muted); color: #fff; border-radius: 99px;
+          padding: 1px 6px; margin-inline-start: 4px; vertical-align: middle; }
 
   /* ---- أزرار الرفع ---- */
   #attach {
@@ -129,6 +149,22 @@
   #disclaimer {
     max-width: 780px; margin: 0 auto 6px; text-align: center;
     font-size: 10.5px; line-height: 1.5; color: var(--muted); opacity: .75;
+  }
+  #attach-msg {
+    max-width: 780px; margin: 0 auto 8px; display: flex; gap: 8px; flex-wrap: wrap;
+    justify-content: center; align-items: center;
+  }
+  .attach-cap { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .attach-btn.msg-attach { border-style: dashed; }
+  #attached-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .att-chip {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+    background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent);
+    padding: 4px 10px; border-radius: 99px;
+  }
+  .att-chip button {
+    border: 0; background: none; color: inherit; cursor: pointer; font: inherit;
+    font-size: 13px; line-height: 1; padding: 0;
   }
   .pbar { height: 6px; background: var(--bg); border-radius: 99px; overflow: hidden; margin-top: 8px; }
   .pbar i { display: block; height: 100%; width: 0%; background: var(--accent);
@@ -153,19 +189,6 @@
   .fb button:hover { border-color: var(--accent); color: var(--accent); }
   .fb .done { color: var(--ok); font-size: 12px; }
 
-  /* ---- نافذة معلومات النظام ---- */
-  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none;
-             place-items: center; z-index: 50; }
-  #overlay.show { display: grid; }
-  #sysinfo { background: var(--card); border-radius: 18px; padding: 22px; width: min(480px, 92vw);
-             max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
-  #sysinfo h2 { font-size: 15px; margin-bottom: 12px; }
-  #sysinfo table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  #sysinfo td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
-  #sysinfo td:first-child { color: var(--muted); white-space: nowrap; }
-  #info-btn { cursor: pointer; border: 1px solid var(--border); background: var(--bg);
-              margin-inline-start: auto; }
-  #info-btn:hover { color: var(--accent); border-color: var(--accent); }
 
   /* ---- الإدخال ---- */
   #bar { padding: 12px 16px 18px; background: linear-gradient(transparent, var(--bg) 40%); }
@@ -181,17 +204,42 @@
     transition: opacity .2s;
   }
   #send:disabled { opacity: .4; cursor: default; }
+
+  /* ---- تسجيل دخول المستخدم ---- */
+  #user-login { position: fixed; inset: 0; background: var(--bg); z-index: 50;
+                display: flex; align-items: center; justify-content: center; padding: 20px; }
+  #user-login .box { background: var(--card); border: 1px solid var(--border);
+                     border-radius: var(--radius); padding: 32px; width: 100%; max-width: 360px; text-align: center; }
+  #user-login h2 { font-size: 19px; margin-bottom: 6px; }
+  #user-login p { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; }
+  #user-login input { font: inherit; font-size: 14px; width: 100%; padding: 11px 13px; margin-bottom: 10px;
+                      border: 1px solid var(--border); border-radius: 10px; }
+  #user-login button { font: inherit; width: 100%; padding: 11px; border: 0; border-radius: 10px;
+                       background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+  #user-login .err { color: #e5484d; font-size: 12px; min-height: 16px; margin-top: 10px; }
+  #userbar { display: flex; align-items: center; gap: 8px; }
 </style>
 </head>
 <body>
 <header>
   <h1>💬 محادثة مستنداتك</h1>
-  <span class="badge">محلي 100%</span>
-  <span class="badge" id="model-badge">qwen3.5 + bge-m3</span>
-  <button class="badge" id="info-btn" title="معلومات النظام">⚙️ النظام</button>
+  <span id="userbar" style="display:none; margin-inline-start:auto">
+    <span class="badge" id="user-name"></span>
+    <button class="badge" id="logout-btn" title="تسجيل الخروج">خروج ↩︎</button>
+  </span>
 </header>
 
-<div id="overlay"><div id="sysinfo"><h2>⚙️ معلومات النظام</h2><div id="sysinfo-body">جاري التحميل…</div></div></div>
+<div id="user-login">
+  <div class="box">
+    <h2>تسجيل الدخول</h2>
+    <p>سجّل الدخول للوصول إلى مستنداتك المصرّح بها</p>
+    <input id="lg-user" placeholder="اسم المستخدم" autocomplete="username" autofocus>
+    <input id="lg-pass" type="password" placeholder="كلمة المرور" autocomplete="current-password">
+    <button id="lg-btn">دخول</button>
+    <div class="err" id="lg-err"></div>
+  </div>
+</div>
+
 
 <div id="chat">
   <div class="empty-hint">اسأل أي شيء عن الملفات المفهرسة في documents/<br>مثلًا: <b>ما هي سياسات مشاركة البيانات؟</b></div>
@@ -217,11 +265,28 @@
       <button data-d="max">🎯 دقة قصوى</button>
     </div>
   </div>
-  <div id="attach">
-    <label class="attach-btn">📕 إضافة PDF<input type="file" accept=".pdf" hidden></label>
-    <label class="attach-btn">📘 إضافة Word<input type="file" accept=".docx" hidden></label>
-    <label class="attach-btn">📄 إضافة نص TXT<input type="file" accept=".txt" hidden></label>
-    <label class="attach-btn">📝 إضافة Markdown<input type="file" accept=".md,.markdown" hidden></label>
+  <div id="source-wrap">
+    <span id="depth-label">مصدر الإجابة
+      <span class="info">!
+        <span class="tip">
+          يحدد من أين تأتي الإجابة:<br>
+          📚 <b>من مستندات الهيئة</b>: يبحث في مستنداتك المصرّح بها ويجيب منها فقط (RAG)<br>
+          🌐 <b>معرفة عامة</b>: (قريبًا)
+        </span>
+      </span>
+    </span>
+    <div id="source">
+      <button data-s="docs" class="on">📚 من مستندات الهيئة</button>
+      <button data-s="general" disabled title="قريبًا">🌐 معرفة عامة <span class="soon">قريبًا</span></button>
+    </div>
+  </div>
+  <div id="attach-msg">
+    <span class="attach-cap">📎 إرفاق مؤقت للجلسة:</span>
+    <label class="attach-btn msg-attach">📎 إرفاق مستند<input type="file" accept=".pdf,.docx,.txt,.md,.markdown" hidden></label>
+    <span class="info">!
+      <span class="tip">الملفات المسموحة:<br>📕 PDF &nbsp;·&nbsp; 📘 Word (docx)<br>📄 نص (txt) &nbsp;·&nbsp; 📝 Markdown (md)</span>
+    </span>
+    <span id="attached-chips"></span>
   </div>
   <div id="disclaimer">إخلاء مسؤولية: المخرجات المولدة قد تكون غير دقيقة أو غير مكتملة. يجب مراجعة النتائج بشرياً قبل اعتمادها في التقارير الرسمية أو القرارات الحاسمة.</div>
   <form id="form">
@@ -252,6 +317,42 @@ const input = document.getElementById('q');
 const send = document.getElementById('send');
 let busy = false;
 
+/* ---- تسجيل دخول المستخدم ---- */
+let TOKEN = localStorage.getItem('rag_user_token') || '';
+let USERNAME = localStorage.getItem('rag_user_name') || '';
+
+function showApp() {
+  document.getElementById('user-login').style.display = 'none';
+  document.getElementById('userbar').style.display = 'flex';
+  document.getElementById('user-name').textContent = '👤 ' + USERNAME;
+  input.focus();
+}
+async function doUserLogin() {
+  const username = document.getElementById('lg-user').value.trim();
+  const password = document.getElementById('lg-pass').value;
+  const errEl = document.getElementById('lg-err');
+  errEl.textContent = '';
+  try {
+    const res = await fetch('/user/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'تعذّر الدخول');
+    TOKEN = d.token; USERNAME = d.username;
+    localStorage.setItem('rag_user_token', TOKEN);
+    localStorage.setItem('rag_user_name', USERNAME);
+    showApp();
+  } catch (e) { errEl.textContent = e.message; }
+}
+document.getElementById('lg-btn').addEventListener('click', doUserLogin);
+document.getElementById('lg-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doUserLogin(); });
+document.getElementById('lg-user').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('lg-pass').focus(); });
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  try { await fetch('/user/logout', { method: 'POST', body: JSON.stringify({ token: TOKEN }) }); } catch (e) {}
+  localStorage.removeItem('rag_user_token'); localStorage.removeItem('rag_user_name');
+  location.reload();
+});
+// إن وُجد رمز محفوظ، اعرض الواجهة مباشرة (سيُتحقق منه عند أول سؤال)
+if (TOKEN && USERNAME) showApp();
+
 /* مستوى التفكير */
 let depth = localStorage.getItem('rag_depth') || 'balanced';
 document.querySelectorAll('#depth button').forEach(b => {
@@ -260,6 +361,20 @@ document.querySelectorAll('#depth button').forEach(b => {
     depth = b.dataset.d;
     localStorage.setItem('rag_depth', depth);
     document.querySelectorAll('#depth button').forEach(x => x.classList.toggle('on', x === b));
+  });
+});
+
+/* مصدر الإجابة: من المستندات (RAG) أم معرفة عامة */
+let source = localStorage.getItem('rag_source') || 'docs';
+if (source === 'general') source = 'docs';  // «المعرفة العامة» معطّلة مؤقتًا (قريبًا)
+localStorage.setItem('rag_source', source);
+document.querySelectorAll('#source button').forEach(b => {
+  b.classList.toggle('on', b.dataset.s === source);
+  b.addEventListener('click', () => {
+    if (b.disabled) return;  // الخيار المعطّل لا يُختار
+    source = b.dataset.s;
+    localStorage.setItem('rag_source', source);
+    document.querySelectorAll('#source button').forEach(x => x.classList.toggle('on', x === b));
   });
 });
 
@@ -313,7 +428,7 @@ function ask(q) {
   let gotText = false, finished = false, raw = '';
   const stageTimes = [];          // توقيت كل مرحلة
   let chunksData = [], genStats = null, sectionName = '';
-  const es = new EventSource('/ask?q=' + encodeURIComponent(q) + '&depth=' + depth);
+  const es = new EventSource('/ask?q=' + encodeURIComponent(q) + '&depth=' + depth + '&source=' + source + '&token=' + encodeURIComponent(TOKEN));
 
   const setStage = id => {
     let passed = true;
@@ -338,7 +453,9 @@ function ask(q) {
 
   // دردشة عامة → لا حاجة لمرحلتي التضمين والبحث
   es.addEventListener('mode', e => {
-    if (JSON.parse(e.data).mode === 'chat') {
+    const d = JSON.parse(e.data);
+    const m = d.mode;
+    if (m === 'chat' || m === 'general' || (m === 'attached' && !d.retrieval)) {
       ['embed', 'retrieve'].forEach(id => {
         const st = pipe.querySelector('[data-id="' + id + '"]');
         if (st) { if (st.previousElementSibling?.classList.contains('link')) st.previousElementSibling.remove(); st.remove(); }
@@ -415,7 +532,8 @@ function ask(q) {
 
 /* ---- الرفع والفهرسة التلقائية ---- */
 const SEC_WARN = "تنبيه أمني: يُمنع رفع أي ملفات تحتوي على بيانات مصنفة كـ (مقيد، سري، سري للغاية) أو تحتوي على بيانات شخصية غير مجهلة. هل تقر بأن هذا الملف يحتوي على بيانات (عامة) فقط؟";
-document.querySelectorAll('#attach input[type=file]').forEach(inp => {
+document.querySelectorAll('#attach input[type=file], #attach-msg input[type=file]').forEach(inp => {
+  const toSession = inp.closest('#attach-msg') !== null;  // إرفاق للجلسة أم رفع دائم للفهرسة
   // إقرار أمني إلزامي قبل فتح نافذة اختيار الملف (امتثال ضوابط سدايا)
   inp.addEventListener('click', e => {
     if (inp._ack) { inp._ack = false; return; }   // السماح بالنقر البرمجي بعد الإقرار
@@ -424,10 +542,85 @@ document.querySelectorAll('#attach input[type=file]').forEach(inp => {
     // إلغاء: لا يُفتح مربع الاختيار وتُلغى عملية الرفع
   });
   inp.addEventListener('change', () => {
-    if (inp.files[0]) upload(inp.files[0]);
+    if (inp.files[0]) (toSession ? attachToSession : upload)(inp.files[0]);
     inp.value = '';
   });
 });
+
+/* ---- إرفاق مستند للجلسة (مؤقت) ---- */
+let attached = [];  // أسماء الملفات المرفقة حاليًا
+
+function renderChips() {
+  const box = document.getElementById('attached-chips');
+  box.innerHTML = '';
+  attached.forEach(name => {
+    const chip = el('span', 'att-chip', '📎 ' + escapeHtml(name) + ' ');
+    const x = el('button', '', '✕'); x.title = 'إزالة';
+    x.addEventListener('click', () => clearAttached());
+    chip.appendChild(x);
+    box.appendChild(chip);
+  });
+}
+
+async function clearAttached() {
+  try { await fetch('/attach_clear', { method: 'POST', headers: { 'X-User-Token': TOKEN } }); } catch (e) {}
+  attached = [];
+  renderChips();
+  chat.appendChild(el('div', 'msg bot', 'تم مسح المستندات المرفقة للجلسة. ستعود الإجابات إلى المصدر المحدد بالأعلى.'));
+  scroll();
+}
+
+async function attachToSession(file) {
+  document.querySelector('.empty-hint')?.remove();
+  const bub = el('div', 'msg bot');
+  const title = el('div', '', '📎 <b>' + escapeHtml(file.name) + '</b> — جاري الإرفاق…');
+  const bar = el('div', 'pbar', '<i></i>');
+  bub.append(title, bar);
+  chat.appendChild(bub);
+  scroll();
+  const fill = bar.firstElementChild;
+  try {
+    const res = await fetch('/attach', {
+      method: 'POST',
+      headers: { 'X-Filename': encodeURIComponent(file.name), 'X-User-Token': TOKEN },
+      body: file
+    });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let tail = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      tail += dec.decode(value, { stream: true });
+      const lines = tail.split('\n');
+      tail = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const m = JSON.parse(line);
+        if (m.status === 'saved') {
+          fill.style.width = '10%';
+        } else if (m.total) {
+          fill.style.width = Math.round(m.done / m.total * 100) + '%';
+          title.innerHTML = '⚙️ <b>' + escapeHtml(file.name) + '</b> — فهرسة مؤقتة ' + m.done + ' / ' + m.total;
+        } else if (m.ok) {
+          fill.style.width = '100%';
+          fill.style.background = 'var(--ok)';
+          const how = m.mode === 'inline' ? 'محقون كاملًا في السياق' : 'مفهرس مؤقتًا (ملف كبير)';
+          title.innerHTML = '📎 أُرفق <b>' + escapeHtml(m.name) + '</b> (' + how + ') — اسأل عنه في رسالتك القادمة.';
+          attached.push(m.name);
+          renderChips();
+        } else if (m.error) {
+          bar.remove();
+          title.innerHTML = '<span class="error">⚠️ ' + escapeHtml(m.error) + '</span>';
+        }
+        scroll();
+      }
+    }
+  } catch (e) {
+    bar.remove();
+    title.innerHTML = '<span class="error">⚠️ فشل الإرفاق — تأكد أن app.py شغّال.</span>';
+  }
+}
 
 async function upload(file) {
   document.querySelector('.empty-hint')?.remove();
@@ -542,31 +735,6 @@ function buildAnalysis(q, totalSec, stages, chunks, gstats, section) {
   det.appendChild(fb);
   return det;
 }
-
-/* ---- نافذة معلومات النظام ---- */
-const overlay = document.getElementById('overlay');
-document.getElementById('info-btn').addEventListener('click', async () => {
-  overlay.classList.add('show');
-  const body = document.getElementById('sysinfo-body');
-  try {
-    const d = await (await fetch('/info')).json();
-    const row = (k, v) => '<tr><td>' + k + '</td><td>' + v + '</td></tr>';
-    let files = d.files.map(f => escapeHtml(f.name) + ' <span style="color:var(--muted)">(' + f.chunks + ' مقطع)</span>').join('<br>') || '—';
-    body.innerHTML = '<table>'
-      + row('نموذج الإجابة', escapeHtml(d.llm))
-      + row('نموذج التضمين', escapeHtml(d.embed) + ' (' + d.dims + ' بُعدًا)')
-      + row('حجم المقطع / التداخل', d.chunk_words + ' / ' + d.overlap_words + ' كلمة')
-      + row('حد الصلة (كوساين)', d.max_distance)
-      + row('الملفات المفهرسة', files)
-      + row('إجمالي المقاطع', d.total_chunks)
-      + row('مستويات التفكير', Object.entries(d.depths).map(([k, v]) => k + ' (k=' + v.k + (v.verify ? ' + تدقيق' : '') + ')').join('، '))
-      + row('نماذج Ollama المثبتة', d.ollama_models.map(escapeHtml).join('<br>') || '—')
-      + '</table>';
-  } catch (e) {
-    body.innerHTML = '<span class="error">تعذّر جلب المعلومات — تأكد أن الخادم شغّال.</span>';
-  }
-});
-overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('show'); });
 
 /* تنسيق ماركداون مبسّط وآمن (عناوين، عريض، نقاط) */
 function renderMd(text) {
