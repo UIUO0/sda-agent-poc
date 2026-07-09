@@ -9,13 +9,42 @@
     --bg: #f7f7f8; --card: #ffffff; --ink: #1a1a2e; --muted: #8a8a9a;
     --accent: #5b5bd6; --accent-soft: #eeeefb; --ok: #2fb573;
     --border: #ebebef; --radius: 18px;
+    --g1: rgba(91,91,214,.16); --g2: rgba(123,108,240,.14); --g3: rgba(47,181,115,.10);
+  }
+  html[data-theme="dark"] {
+    --bg: #0f0f17; --card: #1b1b28; --ink: #e9e9f2; --muted: #9a9ab0;
+    --accent: #8b8bf5; --accent-soft: #26264a; --ok: #35c07f;
+    --border: #2a2a3c;
+    --g1: rgba(123,123,245,.20); --g2: rgba(140,110,240,.16); --g3: rgba(53,192,127,.12);
   }
   * { box-sizing: border-box; margin: 0; }
+  html { background: var(--bg); transition: background .3s ease; }
   body {
     font-family: -apple-system, "SF Arabic", "Segoe UI", system-ui, sans-serif;
-    background: var(--bg); color: var(--ink); height: 100dvh;
-    display: flex; flex-direction: column;
+    background: transparent; color: var(--ink); height: 100dvh;
+    display: flex; flex-direction: column; transition: color .3s ease;
   }
+  /* توهج خفيف متحرك في الخلفية */
+  #glow {
+    position: fixed; inset: -25%; z-index: -1; pointer-events: none; filter: blur(60px);
+    background:
+      radial-gradient(circle at 22% 28%, var(--g1), transparent 42%),
+      radial-gradient(circle at 78% 68%, var(--g2), transparent 42%),
+      radial-gradient(circle at 62% 15%, var(--g3), transparent 40%);
+    animation: aurora 20s ease-in-out infinite alternate;
+  }
+  @keyframes aurora {
+    0%   { transform: translate(0,0) scale(1) rotate(0deg); }
+    50%  { transform: translate(2.5%, 2%) scale(1.12) rotate(2deg); }
+    100% { transform: translate(-2.5%, -2%) scale(1.06) rotate(-2deg); }
+  }
+  /* زر تبديل السمة */
+  #theme-btn { cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+               transition: all .2s; }
+  #theme-btn:hover { color: var(--accent); border-color: var(--accent);
+                     background: var(--accent-soft); transform: translateY(-1px); }
+  @media (prefers-reduced-motion: reduce) { #glow { animation: none !important; } }
+  header, #sidebar, #form, #user-login .box, .msg.bot { transition: background .3s ease, border-color .3s ease; }
   header {
     padding: 14px 22px; background: var(--card); border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 10px;
@@ -80,82 +109,19 @@
   .error { color: #c0392b; font-size: 13px; }
 
   /* ---- مستوى التفكير ---- */
-  #depth-wrap {
-    max-width: 780px; margin: 0 auto 8px; display: flex; justify-content: center;
-    align-items: center; gap: 10px;
-  }
-  #depth-label {
-    font-size: 12px; color: var(--muted); font-weight: 600;
-    display: inline-flex; align-items: center; gap: 5px;
-  }
-  .info {
-    position: relative; cursor: help; width: 16px; height: 16px; border-radius: 50%;
-    background: var(--border); color: var(--muted); font-size: 11px; font-weight: 700;
-    display: inline-grid; place-items: center; font-style: normal;
-  }
-  .info .tip {
-    position: absolute; bottom: 145%; right: 50%; transform: translateX(50%);
-    width: 250px; background: var(--ink); color: #fff; text-align: right;
-    font-size: 11.5px; font-weight: 400; line-height: 2; padding: 10px 14px;
-    border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.25);
-    opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 10;
-  }
-  .info .tip::after {
-    content: ""; position: absolute; top: 100%; right: 50%; transform: translateX(50%);
-    border: 6px solid transparent; border-top-color: var(--ink);
-  }
-  .info:hover .tip { opacity: 1; }
-  #depth {
-    display: flex; gap: 0; background: var(--card); border: 1px solid var(--border);
-    border-radius: 99px; padding: 3px;
-  }
-  #depth button {
-    border: 0; background: none; cursor: pointer; font: inherit; font-size: 12px;
-    color: var(--muted); padding: 6px 16px; border-radius: 99px; transition: all .2s;
-  }
-  #depth button.on { background: var(--accent); color: #fff; font-weight: 600; }
-  #depth button:not(.on):hover { color: var(--accent); }
-  #source-wrap {
-    max-width: 780px; margin: 0 auto 8px; display: flex; justify-content: center;
-    align-items: center; gap: 10px;
-  }
-  #source {
-    display: flex; gap: 0; background: var(--card); border: 1px solid var(--border);
-    border-radius: 99px; padding: 3px;
-  }
-  #source button {
-    border: 0; background: none; cursor: pointer; font: inherit; font-size: 12px;
-    color: var(--muted); padding: 6px 16px; border-radius: 99px; transition: all .2s;
-  }
-  #source button.on { background: var(--accent); color: #fff; font-weight: 600; }
-  #source button:not(.on):hover { color: var(--accent); }
-  #source button:disabled { opacity: .5; cursor: not-allowed; }
-  #source button:disabled:hover { color: var(--muted); }
-  .soon { font-size: 9px; background: var(--muted); color: #fff; border-radius: 99px;
-          padding: 1px 6px; margin-inline-start: 4px; vertical-align: middle; }
-
-  /* ---- أزرار الرفع ---- */
-  #attach {
-    max-width: 780px; margin: 0 auto 8px; display: flex; gap: 8px; flex-wrap: wrap;
-    justify-content: center;
-  }
+  /* ---- زر الإرفاق والإخلاء ---- */
   .attach-btn {
     display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-    font-size: 12px; color: var(--muted); background: var(--card);
+    font-size: 12px; color: var(--muted); background: var(--bg);
     border: 1px solid var(--border); padding: 6px 14px; border-radius: 99px;
     transition: all .2s; user-select: none;
   }
   .attach-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .attach-btn.msg-attach { border-style: dashed; }
   #disclaimer {
     max-width: 780px; margin: 0 auto 6px; text-align: center;
     font-size: 10.5px; line-height: 1.5; color: var(--muted); opacity: .75;
   }
-  #attach-msg {
-    max-width: 780px; margin: 0 auto 8px; display: flex; gap: 8px; flex-wrap: wrap;
-    justify-content: center; align-items: center;
-  }
-  .attach-cap { font-size: 11px; color: var(--muted); font-weight: 600; }
-  .attach-btn.msg-attach { border-style: dashed; }
   #attached-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
   .att-chip {
     display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
@@ -191,19 +157,41 @@
 
 
   /* ---- الإدخال ---- */
-  #bar { padding: 12px 16px 18px; background: linear-gradient(transparent, var(--bg) 40%); }
+  #bar { padding: 10px 16px 18px; background: linear-gradient(transparent, var(--bg) 40%); }
   #form {
-    max-width: 780px; margin: 0 auto; display: flex; gap: 8px;
-    background: var(--card); border: 1px solid var(--border); border-radius: 99px;
-    padding: 6px 6px 6px 14px; box-shadow: 0 4px 24px rgba(0,0,0,.05);
+    max-width: 780px; margin: 0 auto; display: flex; flex-direction: column;
+    background: var(--card); border: 1px solid var(--border); border-radius: 22px;
+    padding: 6px 8px 8px; box-shadow: 0 6px 26px rgba(30,30,60,.07);
+    transition: border-color .2s, box-shadow .2s;
   }
-  #q { flex: 1; border: 0; outline: 0; font: inherit; font-size: 14.5px; background: none; }
+  #form:focus-within { border-color: var(--accent); box-shadow: 0 10px 32px rgba(91,91,214,.15); }
+  #input-row { display: flex; gap: 8px; align-items: center; padding: 4px 6px 4px 10px; }
+  #q { flex: 1; border: 0; outline: 0; font: inherit; font-size: 14.5px; background: none;
+       color: var(--ink); caret-color: var(--accent); }
+  #q::placeholder { color: var(--muted); opacity: .8; }
   #send {
     border: 0; background: var(--accent); color: #fff; width: 40px; height: 40px;
-    border-radius: 50%; cursor: pointer; display: grid; place-items: center;
+    border-radius: 50%; cursor: pointer; display: grid; place-items: center; flex: none;
     transition: opacity .2s;
   }
   #send:disabled { opacity: .4; cursor: default; }
+
+  /* ---- شريط الأدوات المدمج (قوائم منسدلة) ---- */
+  #composer-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                    padding: 8px 6px 2px; margin-top: 4px; border-top: 1px solid var(--border); }
+  .tool { display: inline-flex; align-items: center; gap: 4px; }
+  .tool-ic { font-size: 13px; opacity: .8; }
+  .tool-select {
+    font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 99px; padding: 6px 12px 6px 28px;
+    cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a9a' stroke-width='2.6'><path d='M6 9l6 6 6-6'/></svg>");
+    background-repeat: no-repeat; background-position: left 10px center;
+    transition: border-color .18s, color .18s, box-shadow .18s;
+  }
+  .tool-select:hover { border-color: var(--accent); color: var(--accent); }
+  .tool-select:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  #attach-msg.tool .attach-btn { font-size: 12.5px; padding: 6px 12px; }
 
   /* ---- تسجيل دخول المستخدم ---- */
   #user-login { position: fixed; inset: 0; background: var(--bg); z-index: 50;
@@ -213,21 +201,114 @@
   #user-login h2 { font-size: 19px; margin-bottom: 6px; }
   #user-login p { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; }
   #user-login input { font: inherit; font-size: 14px; width: 100%; padding: 11px 13px; margin-bottom: 10px;
-                      border: 1px solid var(--border); border-radius: 10px; }
+                      border: 1px solid var(--border); border-radius: 10px;
+                      background: var(--bg); color: var(--ink); }
+  #user-login input::placeholder { color: var(--muted); }
   #user-login button { font: inherit; width: 100%; padding: 11px; border: 0; border-radius: 10px;
                        background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
   #user-login .err { color: #e5484d; font-size: 12px; min-height: 16px; margin-top: 10px; }
   #userbar { display: flex; align-items: center; gap: 8px; }
+
+  /* ---- درج المحادثات ---- */
+  #hist-btn { cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+              transition: all .2s; }
+  #hist-btn:hover { color: var(--accent); border-color: var(--accent);
+                    background: var(--accent-soft); transform: translateY(-1px); }
+  /* الشريط ثابت على اليمين ويدفع المحتوى؛ قابل للإخفاء (مثل Gemini) */
+  body { transition: padding-right .28s ease; }
+  #overlay { position: fixed; inset: 0; background: rgba(20,20,40,.32); opacity: 0;
+             visibility: hidden; transition: opacity .28s ease; z-index: 40;
+             backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+  #sidebar {
+    position: fixed; top: 0; right: 0; height: 100dvh; width: 300px; max-width: 86vw;
+    background: var(--card); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; z-index: 50;
+    transform: translateX(100%); transition: transform .3s cubic-bezier(.34,1.1,.5,1);
+    box-shadow: -12px 0 40px rgba(30,30,60,.08);
+  }
+  body.sb-open #sidebar { transform: translateX(0); }
+  /* على الشاشات الواسعة: يدفع المحتوى بدل أن يغطّيه، بلا تعتيم */
+  @media (min-width: 900px) {
+    body.sb-open { padding-right: 300px; }
+    #overlay { display: none !important; }
+  }
+  /* على الشاشات الضيقة: يطفو فوق المحتوى مع تعتيم */
+  @media (max-width: 899px) {
+    body.sb-open #overlay { opacity: 1; visibility: visible; }
+  }
+  #sidebar .sb-head { padding: 14px; border-bottom: 1px solid var(--border);
+                      display: flex; gap: 8px; align-items: center; }
+  #new-conv { flex: 1; font: inherit; font-size: 13px; padding: 10px 12px; border: 0;
+              border-radius: 12px; background: linear-gradient(135deg, var(--accent), #7b6cf0);
+              color: #fff; font-weight: 650; cursor: pointer; transition: all .2s;
+              box-shadow: 0 4px 14px rgba(91,91,214,.28); }
+  #new-conv:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(91,91,214,.38); }
+  #new-conv:active { transform: translateY(0); }
+  #sb-close { border: 0; background: transparent; font-size: 17px; cursor: pointer;
+              color: var(--muted); padding: 6px 9px; border-radius: 9px; transition: all .2s; }
+  #sb-close:hover { background: var(--bg); color: var(--ink); transform: rotate(90deg); }
+  #conv-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+  .conv-item { display: flex; align-items: center; gap: 6px; padding: 10px 11px; border-radius: 11px;
+               cursor: pointer; font-size: 13px; color: var(--ink); border: 1px solid transparent;
+               transition: background .18s, border-color .18s, transform .12s;
+               animation: convIn .3s ease both; }
+  .conv-item:hover { background: var(--bg); }
+  .conv-item:active { transform: scale(.985); }
+  .conv-item.active { background: var(--accent-soft); border-color: var(--accent); }
+  .conv-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv-item .act { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+  .conv-item:hover .act, .conv-item.active .act { opacity: 1; }
+  .conv-item .act button { border: 0; background: transparent; cursor: pointer; color: var(--muted);
+                           font-size: 13px; padding: 3px 5px; border-radius: 7px; transition: all .15s; }
+  .conv-item .act button:hover { color: var(--accent); background: #fff; transform: scale(1.15); }
+  .sb-empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 26px 14px; line-height: 2; }
+  @keyframes convIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* ---- لمسات حركية عامة (سلسة ومستمرة) ---- */
+  header { position: relative; }
+  header::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent) 45%, #7b6cf0 55%, transparent);
+    background-size: 220% 100%; animation: sheen 3.4s linear infinite; opacity: .55;
+  }
+  @keyframes sheen { to { background-position: -220% 0; } }
+  header h1 { display: inline-flex; align-items: center; gap: 8px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+              box-shadow: 0 0 0 0 rgba(47,181,115,.5); animation: livePulse 2s ease-in-out infinite; flex: none; }
+  @keyframes livePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(47,181,115,.5); }
+                         50% { box-shadow: 0 0 0 6px rgba(47,181,115,0); } }
+  .msg { animation: msgIn .34s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes msgIn { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
+  #send { transition: transform .18s, box-shadow .2s, background .2s; }
+  #send:hover { transform: scale(1.08); }
+  #send:active { transform: scale(.94); }
+  @media (prefers-reduced-motion: reduce) {
+    header::after, .live-dot, .msg, .conv-item { animation: none !important; }
+  }
 </style>
 </head>
 <body>
+<div id="glow"></div>
 <header>
-  <h1>💬 المساعد الشخصي لمستندات هيئة تطوير المنطقة الشرقية</h1>
-  <span id="userbar" style="display:none; margin-inline-start:auto">
-    <span class="badge" id="user-name"></span>
-    <button class="badge" id="logout-btn" title="تسجيل الخروج">خروج ↩︎</button>
+  <button class="badge" id="hist-btn" title="المحادثات" style="display:none">☰ المحادثات</button>
+  <h1><span class="live-dot" title="يعمل محلياً"></span>💬 المساعد الشخصي لمستندات هيئة تطوير المنطقة الشرقية</h1>
+  <span style="margin-inline-start:auto; display:flex; align-items:center; gap:8px">
+    <button class="badge" id="theme-btn" title="تبديل الوضع الداكن/الفاتح">🌙 داكن</button>
+    <span id="userbar" style="display:none; gap:8px">
+      <span class="badge" id="user-name"></span>
+      <button class="badge" id="logout-btn" title="تسجيل الخروج">خروج ↩︎</button>
+    </span>
   </span>
 </header>
+
+<div id="overlay"></div>
+<aside id="sidebar">
+  <div class="sb-head">
+    <button id="new-conv">➕ محادثة جديدة</button>
+    <button id="sb-close" title="إغلاق">✕</button>
+  </div>
+  <div id="conv-list"></div>
+</aside>
 
 <div id="user-login">
   <div class="box">
@@ -242,62 +323,61 @@
 
 
 <div id="chat">
-  <div class="empty-hint">اسأل أي شيء عن الملفات المفهرسة في documents/<br>مثلًا: <b>ما هي سياسات مشاركة البيانات؟</b></div>
+  <div class="empty-hint">تفضّل، اسأل أي سؤال عن مستندات هيئة تطوير المنطقة الشرقية<br>مثلًا: <b>ما هي سياسات مشاركة البيانات؟</b></div>
 </div>
 
 <div id="bar">
-  <div id="depth-wrap">
-    <span id="depth-label">مستوى التفكير
-      <span class="info">!
-        <span class="tip">
-          يحدد طول الإجابة وكمية السياق:<br>
-          🚀 <b>سريع</b>: اختصار شديد — جملتان إلى ثلاث (الأسرع)<br>
-          ⚖️ <b>متوازن</b>: اختصار متوسط — فقرة وافية<br>
-          🔬 <b>عميق</b>: إجابة مفصّلة شاملة ومنظمة<br>
-          🎯 <b>دقة قصوى</b>: مسودة ثم تدقيق ضد النص الأصلي (الأبطأ — دقائق)
-        </span>
-      </span>
-    </span>
-    <div id="depth">
-      <button data-d="fast">🚀 سريع</button>
-      <button data-d="balanced" class="on">⚖️ متوازن</button>
-      <button data-d="deep">🔬 عميق</button>
-      <button data-d="max">🎯 دقة قصوى</button>
-    </div>
-  </div>
-  <div id="source-wrap">
-    <span id="depth-label">مصدر الإجابة
-      <span class="info">!
-        <span class="tip">
-          يحدد من أين تأتي الإجابة:<br>
-          📚 <b>من مستندات الهيئة</b>: يبحث في مستنداتك المصرّح بها ويجيب منها فقط (RAG)<br>
-          🌐 <b>معرفة عامة</b>: (قريبًا)
-        </span>
-      </span>
-    </span>
-    <div id="source">
-      <button data-s="docs" class="on">📚 من مستندات الهيئة</button>
-      <button data-s="general" disabled title="قريبًا">🌐 معرفة عامة <span class="soon">قريبًا</span></button>
-    </div>
-  </div>
-  <div id="attach-msg">
-    <span class="attach-cap">📎 إرفاق مؤقت للجلسة:</span>
-    <label class="attach-btn msg-attach">📎 إرفاق مستند<input type="file" accept=".pdf,.docx,.txt,.md,.markdown" hidden></label>
-    <span class="info">!
-      <span class="tip">الملفات المسموحة:<br>📕 PDF &nbsp;·&nbsp; 📘 Word (docx)<br>📄 نص (txt) &nbsp;·&nbsp; 📝 Markdown (md)</span>
-    </span>
-    <span id="attached-chips"></span>
-  </div>
   <div id="disclaimer">إخلاء مسؤولية: المخرجات المولدة قد تكون غير دقيقة أو غير مكتملة. يجب مراجعة النتائج بشرياً قبل اعتمادها في التقارير الرسمية أو القرارات الحاسمة.</div>
   <form id="form">
-    <input id="q" placeholder="اكتب سؤالك هنا…" autocomplete="off" autofocus>
-    <button id="send" type="submit" title="إرسال">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="transform:scaleX(-1)"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-    </button>
+    <div id="input-row">
+      <input id="q" placeholder="اكتب سؤالك هنا…" autocomplete="off" autofocus>
+      <button id="send" type="submit" title="إرسال">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="transform:scaleX(-1)"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
+    </div>
+    <div id="composer-tools">
+      <span class="tool" title="مستوى التفكير = حجم السياق المسترجع من المستندات. كلما اخترت مستوى أعلى زاد السياق وطالت الإجابة وصارت أكثر تفصيلاً. لإجابة سريعة مختصرة اختر «سريع»، ولإجابة مطوّلة مفصّلة اختر «عميق» أو «دقة قصوى».">
+        <span class="tool-ic">🧠</span>
+        <select id="depth-select" class="tool-select" title="مستوى التفكير = حجم السياق المسترجع؛ الأعلى = إجابة أطول وأكثر تفصيلاً">
+          <option value="fast">🚀 سريع — سياق مختصر</option>
+          <option value="balanced">⚖️ متوازن — سياق متوسط</option>
+          <option value="deep">🔬 عميق — سياق موسّع</option>
+          <option value="max">🎯 دقة قصوى — أوسع سياق + تدقيق</option>
+        </select>
+      </span>
+      <span class="tool" title="مصدر الإجابة">
+        <span class="tool-ic">📚</span>
+        <select id="source-select" class="tool-select" title="مصدر الإجابة">
+          <option value="docs">من مستندات الهيئة</option>
+          <option value="general" disabled>معرفة عامة (قريبًا)</option>
+        </select>
+      </span>
+      <span id="attach-msg" class="tool">
+        <label class="attach-btn msg-attach" title="إرفاق مستند مؤقت للجلسة">📎 إرفاق<input type="file" accept=".pdf,.docx,.txt,.md,.markdown" hidden></label>
+      </span>
+      <span id="attached-chips"></span>
+    </div>
   </form>
 </div>
 
 <script>
+/* ---- تبديل السمة (فاتح/داكن) ---- */
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = t === 'dark' ? '☀️ فاتح' : '🌙 داكن';
+  try { localStorage.setItem('rag_theme', t); } catch (e) {}
+}
+(function initTheme() {
+  let t = null;
+  try { t = localStorage.getItem('rag_theme'); } catch (e) {}
+  if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  applyTheme(t);
+})();
+document.getElementById('theme-btn').addEventListener('click', () => {
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+});
+
 const ICONS = {
   route:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
   embed:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/></svg>',
@@ -321,10 +401,18 @@ let busy = false;
 let TOKEN = localStorage.getItem('rag_user_token') || '';
 let USERNAME = localStorage.getItem('rag_user_name') || '';
 
+/* ---- حالة المحادثات (تُخزَّن محلياً في المتصفح، منفصلة لكل مستخدم) ---- */
+let CONVS = [];
+let CUR = null;   // معرّف المحادثة الحالية
+
 function showApp() {
   document.getElementById('user-login').style.display = 'none';
   document.getElementById('userbar').style.display = 'flex';
   document.getElementById('user-name').textContent = '👤 ' + USERNAME;
+  document.getElementById('hist-btn').style.display = '';
+  loadConvs();
+  renderConvList();
+  restoreSidebar();
   input.focus();
 }
 async function doUserLogin() {
@@ -353,29 +441,25 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 // إن وُجد رمز محفوظ، اعرض الواجهة مباشرة (سيُتحقق منه عند أول سؤال)
 if (TOKEN && USERNAME) showApp();
 
-/* مستوى التفكير */
+/* مستوى التفكير (قائمة منسدلة) */
 let depth = localStorage.getItem('rag_depth') || 'balanced';
-document.querySelectorAll('#depth button').forEach(b => {
-  b.classList.toggle('on', b.dataset.d === depth);
-  b.addEventListener('click', () => {
-    depth = b.dataset.d;
-    localStorage.setItem('rag_depth', depth);
-    document.querySelectorAll('#depth button').forEach(x => x.classList.toggle('on', x === b));
-  });
+const depthSel = document.getElementById('depth-select');
+depthSel.value = depth;
+depthSel.addEventListener('change', () => {
+  depth = depthSel.value;
+  localStorage.setItem('rag_depth', depth);
 });
 
-/* مصدر الإجابة: من المستندات (RAG) أم معرفة عامة */
+/* مصدر الإجابة (قائمة منسدلة): من المستندات (RAG) أم معرفة عامة */
 let source = localStorage.getItem('rag_source') || 'docs';
 if (source === 'general') source = 'docs';  // «المعرفة العامة» معطّلة مؤقتًا (قريبًا)
 localStorage.setItem('rag_source', source);
-document.querySelectorAll('#source button').forEach(b => {
-  b.classList.toggle('on', b.dataset.s === source);
-  b.addEventListener('click', () => {
-    if (b.disabled) return;  // الخيار المعطّل لا يُختار
-    source = b.dataset.s;
-    localStorage.setItem('rag_source', source);
-    document.querySelectorAll('#source button').forEach(x => x.classList.toggle('on', x === b));
-  });
+const sourceSel = document.getElementById('source-select');
+sourceSel.value = source;
+sourceSel.addEventListener('change', () => {
+  if (sourceSel.value === 'general') { sourceSel.value = source; return; }  // معطّل مؤقتًا
+  source = sourceSel.value;
+  localStorage.setItem('rag_source', source);
 });
 
 form.addEventListener('submit', e => {
@@ -397,6 +481,11 @@ function scroll() { chat.scrollTop = chat.scrollHeight; }
 function ask(q) {
   busy = true; send.disabled = true;
   document.querySelector('.empty-hint')?.remove();
+
+  // السياق = التبادل الأخير فقط (آخر سؤال وردّه) قبل إضافة السؤال الحالي
+  const conv = curConv() || newConv();
+  const historyToSend = conv.messages.slice(-2)
+    .map(m => ({ role: m.role, content: (m.content || '').slice(0, 1000) }));
 
   chat.appendChild(el('div', 'msg user', escapeHtml(q)));
 
@@ -428,7 +517,9 @@ function ask(q) {
   let gotText = false, finished = false, raw = '';
   const stageTimes = [];          // توقيت كل مرحلة
   let chunksData = [], genStats = null, sectionName = '';
-  const es = new EventSource('/ask?q=' + encodeURIComponent(q) + '&depth=' + depth + '&source=' + source + '&token=' + encodeURIComponent(TOKEN));
+  const histParam = historyToSend.length
+    ? '&history=' + encodeURIComponent(JSON.stringify(historyToSend)) : '';
+  const es = new EventSource('/ask?q=' + encodeURIComponent(q) + '&depth=' + depth + '&source=' + source + '&token=' + encodeURIComponent(TOKEN) + histParam);
 
   const setStage = id => {
     let passed = true;
@@ -504,6 +595,7 @@ function ask(q) {
     timer.classList.add('final');
     timer.textContent = '⏱ ' + timer.textContent.replace('⏱ ', '');
     if (ok && raw) ans.innerHTML = renderMd(raw);  // تنسيق ماركداون بعد اكتمال البث
+    if (ok && raw) saveExchange(conv, q, raw);      // حفظ التبادل في المحادثة الحالية
     if (ok && (stageTimes.length || chunksData.length || genStats))
       bot.appendChild(buildAnalysis(q, (performance.now() - t0) / 1000,
                                     stageTimes, chunksData, genStats, sectionName));
@@ -529,6 +621,119 @@ function ask(q) {
     }
   };
 }
+
+/* ================= نظام المحادثات (تخزين محلي في المتصفح) ================= */
+function convKey() { return 'rag_convs::' + (USERNAME || 'anon'); }
+
+function loadConvs() {
+  try { CONVS = JSON.parse(localStorage.getItem(convKey()) || '[]'); }
+  catch (e) { CONVS = []; }
+  if (!Array.isArray(CONVS)) CONVS = [];
+}
+function saveConvs() { localStorage.setItem(convKey(), JSON.stringify(CONVS)); }
+function curConv() { return CONVS.find(c => c.id === CUR) || null; }
+function newConv() {
+  const c = { id: 'c' + Date.now() + Math.random().toString(36).slice(2, 6),
+              title: 'محادثة جديدة', messages: [], updatedAt: Date.now() };
+  CONVS.unshift(c); CUR = c.id; saveConvs();
+  return c;
+}
+
+const EMPTY_HINT = '<div class="empty-hint">تفضّل، اسأل أي سؤال عن مستندات هيئة تطوير المنطقة الشرقية<br>مثلًا: <b>ما هي سياسات مشاركة البيانات؟</b></div>';
+
+function renderConvList() {
+  const list = document.getElementById('conv-list');
+  if (!list) return;
+  if (!CONVS.length) {
+    list.innerHTML = '<div class="sb-empty">لا محادثات محفوظة بعد.<br>ابدأ بمحادثة جديدة.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  CONVS.forEach(c => {
+    const it = el('div', 'conv-item' + (c.id === CUR ? ' active' : ''));
+    it.innerHTML = '<span class="t"></span><span class="act">'
+      + '<button data-a="rename" title="إعادة تسمية">✎</button>'
+      + '<button data-a="del" title="حذف">🗑</button></span>';
+    it.querySelector('.t').textContent = c.title || 'محادثة';
+    it.addEventListener('click', e => { if (!e.target.closest('button')) loadConv(c.id); });
+    it.querySelector('[data-a="rename"]').addEventListener('click', () => renameConv(c.id));
+    it.querySelector('[data-a="del"]').addEventListener('click', () => delConv(c.id));
+    list.appendChild(it);
+  });
+}
+
+function renderChatFromConv(c) {
+  chat.innerHTML = '';
+  if (!c || !c.messages.length) { chat.innerHTML = EMPTY_HINT; return; }
+  c.messages.forEach(m => {
+    if (m.role === 'user') chat.appendChild(el('div', 'msg user', escapeHtml(m.content)));
+    else { const b = el('div', 'msg bot'); b.innerHTML = renderMd(m.content); chat.appendChild(b); }
+  });
+  scroll();
+}
+
+// على الشاشات الضيقة فقط نُخفي الشريط بعد الاختيار؛ على الواسعة يبقى ثابتاً
+function closeSidebarIfNarrow() {
+  if (window.matchMedia('(max-width: 899px)').matches) closeSidebar();
+}
+
+function loadConv(id) {
+  CUR = id;
+  renderChatFromConv(curConv());
+  renderConvList();
+  closeSidebarIfNarrow();
+}
+
+function startNewConv() {
+  newConv();
+  chat.innerHTML = EMPTY_HINT;
+  renderConvList();
+  closeSidebarIfNarrow();
+  input.focus();
+}
+
+function renameConv(id) {
+  const c = CONVS.find(x => x.id === id); if (!c) return;
+  const name = prompt('اسم المحادثة:', c.title || '');
+  if (name && name.trim()) { c.title = name.trim().slice(0, 60); saveConvs(); renderConvList(); }
+}
+
+function delConv(id) {
+  const c = CONVS.find(x => x.id === id); if (!c) return;
+  if (!confirm('حذف هذه المحادثة نهائياً؟')) return;
+  CONVS = CONVS.filter(x => x.id !== id);
+  saveConvs();
+  if (CUR === id) { CUR = null; chat.innerHTML = EMPTY_HINT; }
+  renderConvList();
+}
+
+/* حفظ تبادل (سؤال + جواب) في المحادثة الحالية بعد اكتماله */
+function saveExchange(conv, q, answer) {
+  conv.messages.push({ role: 'user', content: q });
+  conv.messages.push({ role: 'assistant', content: answer });
+  if (!conv.title || conv.title === 'محادثة جديدة') conv.title = q.slice(0, 40);
+  conv.updatedAt = Date.now();
+  CONVS = CONVS.filter(c => c.id !== conv.id); CONVS.unshift(conv);
+  saveConvs(); renderConvList();
+}
+
+/* الشريط الجانبي الثابت: إظهار/إخفاء مع حفظ الحالة */
+function setSidebar(open) {
+  document.body.classList.toggle('sb-open', open);
+  try { localStorage.setItem('rag_sb_open', open ? '1' : '0'); } catch (e) {}
+}
+function toggleSidebar() { setSidebar(!document.body.classList.contains('sb-open')); }
+function closeSidebar() { setSidebar(false); }
+function restoreSidebar() {
+  // مفتوح افتراضياً على الشاشات الواسعة، ما لم يُخفِه المستخدم سابقاً
+  let open = localStorage.getItem('rag_sb_open');
+  if (open === null) open = window.matchMedia('(min-width: 900px)').matches ? '1' : '0';
+  setSidebar(open === '1');
+}
+document.getElementById('hist-btn').addEventListener('click', toggleSidebar);
+document.getElementById('sb-close').addEventListener('click', closeSidebar);
+document.getElementById('overlay').addEventListener('click', closeSidebar);
+document.getElementById('new-conv').addEventListener('click', startNewConv);
 
 /* ---- الرفع والفهرسة التلقائية ---- */
 const SEC_WARN = "تنبيه أمني: يُمنع رفع أي ملفات تحتوي على بيانات مصنفة كـ (مقيد، سري، سري للغاية) أو تحتوي على بيانات شخصية غير مجهلة. هل تقر بأن هذا الملف يحتوي على بيانات (عامة) فقط؟";

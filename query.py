@@ -218,6 +218,32 @@ def route(question: str) -> str:
     return "chat" if "دردشة" in verdict else "rag"
 
 
+CONDENSE_PROMPT = (
+    "أعد صياغة «السؤال الأخير» ليكون سؤالاً مستقلاً مكتفياً بذاته يُفهم دون الرجوع "
+    "إلى المحادثة السابقة، مع استبدال الضمائر والإشارات (مثل: ذلك، هذا، هي) بما تعود إليه. "
+    "أعد السؤال المعاد صياغته فقط دون أي شرح أو مقدمة أو علامات اقتباس. "
+    "إن كان السؤال مستقلاً أصلاً فأعده كما هو تماماً."
+)
+
+
+def condense_question(history, question: str) -> str:
+    """يحوّل سؤال المتابعة إلى سؤال مستقل بالاعتماد على سجل المحادثة — لتحسين الاسترجاع.
+    history: قائمة رسائل [{'role': 'user'|'assistant', 'content': ...}] (بلا الرسالة الحالية)."""
+    if not history:
+        return question
+    convo = "\n".join(
+        f"{'المستخدم' if m.get('role') == 'user' else 'المساعد'}: {str(m.get('content',''))[:800]}"
+        for m in history[-2:])
+    try:
+        resp = _chat([{"role": "system", "content": CONDENSE_PROMPT},
+                      {"role": "user", "content": f"المحادثة:\n{convo}\n\nالسؤال الأخير: {question}\n\nالسؤال المستقل:"}],
+                     stream=False, max_tokens=120)
+        out = strip_thinking(resp["message"]["content"]).strip().strip('"«»')
+        return out or question
+    except Exception:
+        return question
+
+
 def _query(col, q_vec, k, where=None):
     kwargs = {"query_embeddings": [q_vec], "n_results": k}
     if where:
@@ -252,7 +278,7 @@ def select_hits(col, question: str, cfg, allowed=None):
     allowed: مجموعة أسماء الملفات المسموح للمستخدم بالوصول إليها (صلاحيات الوصول).
              None = بلا قيد (كل الملفات). مجموعة فارغة = لا وصول لأي ملف.
     """
-    k = cfg["k"]
+    k = cfg["k"]   # عدد المقاطع المسترجعة = المرتبط بمستوى التفكير (يضبطه المشرف لكل مستوى)
     where_allow = None if allowed is None else {"source": {"$in": list(allowed)}}
     if allowed is not None and not allowed:
         return [], 0, ""  # لا صلاحية على أي ملف
@@ -380,9 +406,21 @@ def build_context(hits, section: str = ""):
     return "\n\n---\n\n".join(blocks)
 
 
-def build_answer_messages(question: str, hits, section: str, cfg, progress=None):
+def _history_msgs(history, limit=2):
+    """سياق المحادثة = التبادل الأخير فقط (آخر سؤال وردّه) — منقّى ومقصوص."""
+    out = []
+    for m in (history or [])[-limit:]:
+        role = "assistant" if m.get("role") == "assistant" else "user"
+        content = str(m.get("content", "")).strip()[:1200]
+        if content:
+            out.append({"role": role, "content": content})
+    return out
+
+
+def build_answer_messages(question: str, hits, section: str, cfg, progress=None, history=None):
     """تجهيز رسائل التوليد النهائي (مشترك بين الطرفية والواجهة).
-    وضع الدقة القصوى: مسودة ثم تدقيقها ضد النص الأصلي نفسه."""
+    وضع الدقة القصوى: مسودة ثم تدقيقها ضد النص الأصلي نفسه.
+    history: سجل المحادثة السابق لدعم أسئلة المتابعة (اختياري)."""
     base = SECTION_PROMPT.format(section=section) if section else SYSTEM_PROMPT
     system = base + "\nأسلوب الإجابة المطلوب: " + cfg["style"]
 
@@ -393,8 +431,9 @@ def build_answer_messages(question: str, hits, section: str, cfg, progress=None)
                 "انسخ مسمياتها وأرقامها كما هي دون أي تغيير:\n"
                 + "\n".join(f"• {a}" for a in anchors))
     user = f"السياق:\n{ctx}\n\nالسؤال: {question}"
-    messages = [{"role": "system", "content": system},
-                {"role": "user", "content": user}]
+    messages = [{"role": "system", "content": system}]
+    messages += _history_msgs(history)   # سياق المحادثة السابق (إن وُجد)
+    messages.append({"role": "user", "content": user})
     if not cfg.get("verify"):
         return messages
 

@@ -9,12 +9,35 @@
     --bg: #f7f7f8; --card: #ffffff; --ink: #1a1a2e; --muted: #8a8a9a;
     --accent: #5b5bd6; --accent-soft: #eeeefb; --ok: #2fb573; --danger: #e5484d;
     --danger-soft: #fdeeee; --border: #ebebef; --radius: 16px;
+    --g1: rgba(91,91,214,.16); --g2: rgba(123,108,240,.14); --g3: rgba(47,181,115,.10);
+  }
+  html[data-theme="dark"] {
+    --bg: #0f0f17; --card: #1b1b28; --ink: #e9e9f2; --muted: #9a9ab0;
+    --accent: #8b8bf5; --accent-soft: #26264a; --ok: #35c07f; --danger: #f0565b;
+    --danger-soft: #3a1e22; --border: #2a2a3c;
+    --g1: rgba(123,123,245,.20); --g2: rgba(140,110,240,.16); --g3: rgba(53,192,127,.12);
   }
   * { box-sizing: border-box; margin: 0; }
+  html { background: var(--bg); transition: background .3s ease; }
   body {
     font-family: -apple-system, "SF Arabic", "Segoe UI", system-ui, sans-serif;
-    background: var(--bg); color: var(--ink); min-height: 100dvh;
+    background: transparent; color: var(--ink); min-height: 100dvh; transition: color .3s ease;
   }
+  #glow {
+    position: fixed; inset: -25%; z-index: -1; pointer-events: none; filter: blur(60px);
+    background:
+      radial-gradient(circle at 22% 28%, var(--g1), transparent 42%),
+      radial-gradient(circle at 78% 68%, var(--g2), transparent 42%),
+      radial-gradient(circle at 62% 15%, var(--g3), transparent 40%);
+    animation: aurora 20s ease-in-out infinite alternate;
+  }
+  @keyframes aurora {
+    0%   { transform: translate(0,0) scale(1) rotate(0deg); }
+    50%  { transform: translate(2.5%, 2%) scale(1.12) rotate(2deg); }
+    100% { transform: translate(-2.5%, -2%) scale(1.06) rotate(-2deg); }
+  }
+  #theme-btn { cursor: pointer; margin-inline-start: auto; }
+  @media (prefers-reduced-motion: reduce) { #glow { animation: none !important; } }
   header {
     padding: 14px 22px; background: var(--card); border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 5;
@@ -88,14 +111,59 @@
   .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 30;
                 display: flex; align-items: center; justify-content: center; padding: 20px; }
   .modal-card { background: var(--card); border-radius: var(--radius); padding: 24px;
-                width: 100%; max-width: 440px; max-height: 85vh; overflow-y: auto; }
+                width: 100%; max-width: 440px; max-height: 85vh; overflow-y: auto;
+                animation: modalIn .22s cubic-bezier(.2,.8,.3,1) both; }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+
+  /* ---- تحسينات شكلية (سلاسة وحركة خفيفة) ---- */
+  header { position: relative; }
+  header::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent) 45%, #7b6cf0 55%, transparent);
+    background-size: 220% 100%; animation: sheen 3.4s linear infinite; opacity: .55;
+  }
+  @keyframes sheen { to { background-position: -220% 0; } }
+  header h1 { display: inline-flex; align-items: center; gap: 8px; }
+  header h1::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+                      box-shadow: 0 0 0 0 rgba(47,181,115,.5); animation: livePulse 2s ease-in-out infinite; }
+  @keyframes livePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(47,181,115,.5); }
+                         50% { box-shadow: 0 0 0 6px rgba(47,181,115,0); } }
+
+  #login { box-shadow: 0 18px 50px rgba(30,30,60,.10);
+           animation: cardIn .4s cubic-bezier(.2,.8,.3,1) both; }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  input, select { transition: border-color .18s, box-shadow .18s; }
+  input:focus, select:focus { outline: 0; border-color: var(--accent);
+                              box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  button { transition: transform .16s, box-shadow .2s, opacity .15s, background .18s, color .18s; }
+  button:hover { opacity: 1; transform: translateY(-1px); box-shadow: 0 5px 14px rgba(91,91,214,.22); }
+  button:active { transform: translateY(0); }
+  button.ghost:hover, #tabs button:hover { box-shadow: 0 4px 12px rgba(30,30,60,.08); }
+  button.danger:hover { box-shadow: 0 5px 14px rgba(229,72,77,.28); }
+  #tabs button { transition: all .18s; }
+  #tabs button.on { box-shadow: 0 4px 14px rgba(91,91,214,.28); }
+
+  .card { transition: box-shadow .2s, transform .2s; }
+  .card:hover { box-shadow: 0 8px 26px rgba(30,30,60,.07); }
+  .stat { transition: transform .18s, box-shadow .2s; }
+  .stat:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(91,91,214,.12); }
+  .stat .n { background: linear-gradient(135deg, var(--accent), #7b6cf0);
+             -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: var(--accent-soft); }
+  @media (prefers-reduced-motion: reduce) {
+    header::after, header h1::before, #login, .modal-card, .msg { animation: none !important; }
+  }
 </style>
 </head>
 <body>
+<div id="glow"></div>
 <header>
   <h1>🔐 لوحة الإدارة</h1>
   <span class="badge">هيئة تطوير المنطقة الشرقية</span>
-  <a class="badge" href="/" style="margin-inline-start:auto">↩︎ واجهة المستخدم</a>
+  <button class="badge" id="theme-btn" title="تبديل الوضع الداكن/الفاتح">🌙 داكن</button>
+  <a class="badge" href="/">↩︎ واجهة المستخدم</a>
 </header>
 
 <!-- شاشة الدخول -->
@@ -195,7 +263,7 @@
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
         <div class="field" style="margin:0"><label>مجموعة البيانات</label><select id="pg-dataset" style="min-width:160px"></select></div>
         <div class="field" style="margin:0"><label>المصدر</label>
-          <select id="pg-source"><option value="docs">📚 من مستندات الهيئة</option><option value="general" disabled>🌐 معرفة عامة (قريبًا)</option></select></div>
+          <select id="pg-source"><option value="docs">📚 من مستندات الهيئة</option><option value="general">🌐 معرفة عامة</option></select></div>
         <div class="field" style="margin:0"><label>المستوى</label>
           <select id="pg-depth"><option value="fast">🚀 سريع</option><option value="balanced" selected>⚖️ متوازن</option><option value="deep">🔬 عميق</option><option value="max">🎯 دقة قصوى</option></select></div>
       </div>
@@ -245,6 +313,15 @@
           <input id="set-dist" type="number" step="0.01" min="0" max="2">
         </div>
         <div class="field">
+          <label>عدد المقاطع المسترجعة لكل مستوى تفكير (حجم السياق — كلما زاد طالت الإجابة)</label>
+          <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px">
+            <div><label style="font-size:11px; margin-bottom:3px">🚀 سريع</label><input id="set-k-fast" type="number" min="1" max="50" step="1"></div>
+            <div><label style="font-size:11px; margin-bottom:3px">⚖️ متوازن</label><input id="set-k-balanced" type="number" min="1" max="50" step="1"></div>
+            <div><label style="font-size:11px; margin-bottom:3px">🔬 عميق</label><input id="set-k-deep" type="number" min="1" max="50" step="1"></div>
+            <div><label style="font-size:11px; margin-bottom:3px">🎯 دقة قصوى</label><input id="set-k-max" type="number" min="1" max="50" step="1"></div>
+          </div>
+        </div>
+        <div class="field">
           <label>كلمات المقطع (تُطبَّق على الفهرسة القادمة)</label>
           <input id="set-chunk" type="number" min="50" max="1000">
         </div>
@@ -280,6 +357,23 @@
 <div class="toast" id="toast"></div>
 
 <script>
+/* ---- تبديل السمة (فاتح/داكن) ---- */
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = t === 'dark' ? '☀️ فاتح' : '🌙 داكن';
+  try { localStorage.setItem('rag_theme', t); } catch (e) {}
+}
+(function initTheme() {
+  let t = null;
+  try { t = localStorage.getItem('rag_theme'); } catch (e) {}
+  if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  applyTheme(t);
+})();
+document.getElementById('theme-btn').addEventListener('click', () => {
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+});
+
 let PASS = '';
 let ADMIN_TOKEN = '';
 const $ = s => document.querySelector(s);
@@ -341,6 +435,7 @@ async function loadOverview() {
   $('#ov-config').innerHTML = `
     نموذج التوليد: <b>${esc(d.llm)}</b> · نموذج التضمين: <b>${esc(d.embed)}</b> (${d.dims} بُعد)<br>
     حد الصلة: <b>${d.max_distance}</b> · المستوى الافتراضي: <b>${esc(d.default_depth)}</b><br>
+    المقاطع لكل مستوى: <b>🚀${d.depths?.fast?.k ?? '-'} · ⚖️${d.depths?.balanced?.k ?? '-'} · 🔬${d.depths?.deep?.k ?? '-'} · 🎯${d.depths?.max?.k ?? '-'}</b><br>
     كلمات المقطع: <b>${d.chunk_words}</b> · التداخل: <b>${d.overlap_words}</b><br>
     مرفقات الجلسة الحالية: <b>${d.attached_session.length ? d.attached_session.map(esc).join('، ') : '—'}</b>`;
 }
@@ -474,6 +569,11 @@ async function loadSettings() {
   $('#set-ocr-model').innerHTML = opts(d.ollama_models, d.ocr_model);
   $('#set-depth').value = d.default_depth;
   $('#set-dist').value = d.max_distance;
+  const dk = d.depths || {};
+  $('#set-k-fast').value = dk.fast?.k ?? '';
+  $('#set-k-balanced').value = dk.balanced?.k ?? '';
+  $('#set-k-deep').value = dk.deep?.k ?? '';
+  $('#set-k-max').value = dk.max?.k ?? '';
   $('#set-chunk').value = d.chunk_words;
   $('#set-overlap').value = d.overlap_words;
   $('#set-ocr-en').value = d.ocr_enabled ? '1' : '0';
@@ -482,6 +582,10 @@ $('#set-save').addEventListener('click', async () => {
   const body = {
     llm: $('#set-llm').value, default_depth: $('#set-depth').value,
     max_distance: parseFloat($('#set-dist').value),
+    depth_k: {
+      fast: parseInt($('#set-k-fast').value), balanced: parseInt($('#set-k-balanced').value),
+      deep: parseInt($('#set-k-deep').value), max: parseInt($('#set-k-max').value),
+    },
     chunk_words: parseInt($('#set-chunk').value), overlap_words: parseInt($('#set-overlap').value),
     ocr_enabled: $('#set-ocr-en').value === '1', ocr_model: $('#set-ocr-model').value.trim(),
   };

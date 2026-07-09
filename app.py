@@ -27,7 +27,8 @@ from query import (CHAT_PROMPT, FALLBACK_PROMPT, GENERAL_PROMPT, GENERAL_STYLES,
                    NOT_FOUND_MSG, COLLECTION, DB_DIR, DEPTHS,
                    LLM_MODEL, EMBED_MODEL, MAX_DISTANCE,
                    route, select_hits, iter_tokens, _chat,
-                   greeting_reply, match_score, build_answer_messages)
+                   greeting_reply, match_score, build_answer_messages,
+                   condense_question)
 
 FEEDBACK_FILE = Path(__file__).parent / "feedback.jsonl"
 
@@ -215,9 +216,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(sse("err", {"msg": "سؤال فارغ"}))
                 return
             allowed = user_allowed_sources(username)
+            # سجل المحادثة (اختياري) لدعم أسئلة المتابعة متعددة الأدوار
+            history = []
+            raw_hist = params.get("history", [""])[0]
+            if raw_hist:
+                try:
+                    parsed = json.loads(raw_hist)
+                    if isinstance(parsed, list):
+                        history = [m for m in parsed
+                                   if isinstance(m, dict) and m.get("role") and m.get("content")]
+                except Exception:
+                    history = []
             audit_log("ask", user=username, q=q, depth=depth, source=source)
             try:
-                self._answer(q, depth, source, allowed=allowed)
+                self._answer(q, depth, source, allowed=allowed, history=history)
             except (BrokenPipeError, ConnectionResetError):
                 pass  # المستخدم أغلق الصفحة
             except Exception as e:
@@ -282,9 +294,9 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
         return {
-            "llm": LLM_MODEL, "embed": EMBED_MODEL, "dims": 1024,
+            "llm": query.LLM_MODEL, "embed": EMBED_MODEL, "dims": 1024,
             "chunk_words": ingest.CHUNK_WORDS, "overlap_words": ingest.OVERLAP_WORDS,
-            "max_distance": MAX_DISTANCE,
+            "max_distance": query.MAX_DISTANCE,
             "files": [{"name": k, "chunks": v} for k, v in sorted(per.items())],
             "total_chunks": sum(per.values()),
             "ollama_models": models,
@@ -579,6 +591,16 @@ class Handler(BaseHTTPRequestHandler):
                     query.LLM_MODEL = str(data["llm"])
                 if data.get("max_distance") is not None:
                     query.MAX_DISTANCE = float(data["max_distance"])
+                if isinstance(data.get("depth_k"), dict):
+                    # عدد المقاطع المسترجعة لكل مستوى تفكير (DEPTHS كائن مشترك مع query)
+                    for _lvl, _kv in data["depth_k"].items():
+                        if _lvl in DEPTHS:
+                            try:
+                                _kk = int(_kv)
+                                if 1 <= _kk <= 50:
+                                    DEPTHS[_lvl]["k"] = _kk
+                            except (TypeError, ValueError):
+                                pass
                 if data.get("chunk_words") is not None:
                     ingest.CHUNK_WORDS = int(data["chunk_words"])
                 if data.get("overlap_words") is not None:
@@ -592,6 +614,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "llm": query.LLM_MODEL, "max_distance": query.MAX_DISTANCE,
                             "chunk_words": ingest.CHUNK_WORDS, "overlap_words": ingest.OVERLAP_WORDS,
                             "default_depth": DEFAULT_DEPTH,
+                            "depths": {k: {"k": v["k"], "verify": bool(v.get("verify"))} for k, v in DEPTHS.items()},
                             "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
@@ -946,8 +969,9 @@ class Handler(BaseHTTPRequestHandler):
         self._stream_tokens(_chat(msgs))
         self._emit("done", {})
 
-    def _answer(self, q, depth="balanced", source="docs", allowed=None):
+    def _answer(self, q, depth="balanced", source="docs", allowed=None, history=None):
         cfg = DEPTHS[depth]
+        history = history or []
 
         # 0-أ) مستندات مُرفقة للجلسة → لها الأولوية (النية صريحة: اسأل عن هذا الملف)
         if ATTACHED["inline"] or ATTACHED["temp"]:
@@ -963,6 +987,7 @@ class Handler(BaseHTTPRequestHandler):
             gstyle = GENERAL_STYLES.get(depth, GENERAL_STYLES["balanced"])
             sys_prompt = f"{GENERAL_PROMPT}\n\nأسلوب الإجابة المطلوب:\n{gstyle}"
             self._stream_tokens(_chat([{"role": "system", "content": sys_prompt},
+                                       *query._history_msgs(history),
                                        {"role": "user", "content": q}]))
             self._emit("done", {})
             return
@@ -981,14 +1006,17 @@ class Handler(BaseHTTPRequestHandler):
         if mode == "chat":
             self._emit("stage", {"stage": "generate"})
             self._stream_tokens(_chat([{"role": "system", "content": CHAT_PROMPT},
+                                       *query._history_msgs(history),
                                        {"role": "user", "content": q}]))
             self._emit("done", {})
             return
 
         # 2) تضمين السؤال + استرجاع مع اختيار أقل عدد ملفات يكفي (مقيّد بصلاحيات الوصول)
+        # لأسئلة المتابعة: نحوّل السؤال إلى سؤال مستقل بالاعتماد على السجل قبل البحث
         self._emit("stage", {"stage": "embed"})
         self._emit("stage", {"stage": "retrieve"})
-        hits, n_candidates, section = select_hits(COL, q, cfg, allowed=allowed)
+        search_q = condense_question(history, q) if history else q
+        hits, n_candidates, section = select_hits(COL, search_q, cfg, allowed=allowed)
 
         # لا مقاطع ذات صلة → رسالة ثابتة صريحة (بلا معرفة عامة، بلا هلوسة)
         if not hits:
@@ -1016,7 +1044,8 @@ class Handler(BaseHTTPRequestHandler):
         self._emit("stage", {"stage": "generate"})
         msgs = build_answer_messages(
             q, hits, section, cfg,
-            progress=lambda i, n: self._emit("phase", {"i": i, "n": n}))
+            progress=lambda i, n: self._emit("phase", {"i": i, "n": n}),
+            history=history)
         self._stream_tokens(_chat(msgs))
         self._emit("done", {})
 
