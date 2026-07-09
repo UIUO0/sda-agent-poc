@@ -31,6 +31,9 @@ Thumbs.db
 chroma_db/
 feedback.jsonl
 
+# سجل التدقيق (يحتوي نصوص الأسئلة — بيانات تشغيلية لا تُرفع)
+audit.jsonl
+
 # مرفقات الجلسة المؤقتة
 .attach_tmp/
 

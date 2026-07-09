@@ -23,6 +23,30 @@ OVERLAP_WORDS = int(os.environ.get("RAG_OVERLAP_WORDS", "75"))  # التداخل
 MIN_CHUNK_WORDS = 25   # أصغر مقطع مقبول
 BATCH_SIZE = 16
 
+# ---------- OCR للمستندات الممسوحة ضوئيًا/الصور (عبر نموذج رؤية محلي في Ollama) ----------
+OCR_ENABLED = os.environ.get("RAG_OCR", "1").lower() not in ("0", "false", "no")
+OCR_MODEL = os.environ.get("RAG_OCR_MODEL", "qwen2.5vl:3b")  # خفيف لـ MacBook Air 16GB؛ للجهاز القوي qwen2.5vl:32b
+OCR_MIN_CHARS = int(os.environ.get("RAG_OCR_MIN_CHARS", "20"))  # صفحة نصها أقل من ذلك = ممسوحة
+OCR_DPI = int(os.environ.get("RAG_OCR_DPI", "200"))
+OCR_PROMPT = ("استخرج كل النص الظاهر في هذه الصورة حرفيًا وبدقة تامة باللغة العربية "
+              "(وأي نص إنجليزي إن وُجد)، مع الحفاظ على ترتيب الأسطر والفقرات والأرقام كما هي. "
+              "أخرج النص المستخرج فقط دون أي شرح أو تعليق أو مقدمات.")
+
+
+def ocr_image(png_bytes):
+    """OCR لصورة (bytes بصيغة PNG) عبر نموذج الرؤية المحلي. يُرجع النص أو '' عند الفشل."""
+    try:
+        resp = ollama.chat(
+            model=OCR_MODEL,
+            messages=[{"role": "user", "content": OCR_PROMPT, "images": [png_bytes]}],
+            options={"temperature": 0},
+        )
+        msg = resp["message"] if isinstance(resp, dict) else resp.message
+        return (msg["content"] if isinstance(msg, dict) else msg.content).strip()
+    except Exception as e:
+        print(f"⚠️ تعذّر تشغيل OCR (النموذج {OCR_MODEL}): {e}")
+        return ""
+
 # فواصل الجمل العربية واللاتينية
 _SENT_SPLIT = re.compile(r"(?<=[.!؟?؛…])\s+")
 # عنصر قائمة مرقّمة/منقّطة (لحماية القوائم من الانقسام بين مقطعين)
@@ -73,12 +97,29 @@ def _fix_fragments(text: str) -> str:
     return "\n".join(out_lines)
 
 
+def _is_scanned(text):
+    """صفحة بلا طبقة نص فعلية (ممسوحة ضوئيًا) = عدد الأحرف غير الفراغية أقل من الحد."""
+    return len(re.sub(r"\s", "", text or "")) < OCR_MIN_CHARS
+
+
 def read_pdf(path: Path):
     # PyMuPDF أدق بكثير مع العربية والأرقام (اتجاه RTL)؛ pypdf احتياط
     try:
         import fitz
         with fitz.open(str(path)) as doc:
-            pages = [(i + 1, page.get_text()) for i, page in enumerate(doc)]
+            pages = []
+            for i, page in enumerate(doc):
+                text = page.get_text()
+                # صفحة ممسوحة ضوئيًا (بلا نص) → OCR عبر نموذج الرؤية المحلي
+                if OCR_ENABLED and _is_scanned(text):
+                    try:
+                        pix = page.get_pixmap(dpi=OCR_DPI)
+                        ocr = ocr_image(pix.tobytes("png"))
+                        if ocr:
+                            text = ocr
+                    except Exception as e:
+                        print(f"⚠️ تعذّر OCR للصفحة {i + 1}: {e}")
+                pages.append((i + 1, text))
     except ImportError:
         from pypdf import PdfReader
         reader = PdfReader(str(path))
@@ -126,7 +167,16 @@ def read_text(path: Path):
     return [(p.strip(), None) for p in re.split(r"\n\s*\n", raw) if p.strip()]
 
 
-READERS = {".pdf": read_pdf, ".docx": read_docx, ".txt": read_text, ".md": read_text}
+def read_image(path: Path):
+    """OCR لملف صورة (ممسوح ضوئيًا) عبر نموذج الرؤية المحلي."""
+    if not OCR_ENABLED:
+        return []
+    text = _normalize_arabic(ocr_image(path.read_bytes()))
+    return [(p.strip(), None) for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+
+READERS = {".pdf": read_pdf, ".docx": read_docx, ".txt": read_text, ".md": read_text,
+           ".png": read_image, ".jpg": read_image, ".jpeg": read_image}
 
 
 # ---------- التقطيع الذكي (بحدود الجمل + اكتشاف العناوين) ----------

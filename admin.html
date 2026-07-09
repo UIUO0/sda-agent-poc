@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>لوحة الإدارة — نظام RAG</title>
+<title>لوحة الإدارة — المساعد الشخصي لمستندات هيئة تطوير المنطقة الشرقية</title>
 <style>
   :root {
     --bg: #f7f7f8; --card: #ffffff; --ink: #1a1a2e; --muted: #8a8a9a;
@@ -94,7 +94,7 @@
 <body>
 <header>
   <h1>🔐 لوحة الإدارة</h1>
-  <span class="badge">نظام RAG محلي</span>
+  <span class="badge">هيئة تطوير المنطقة الشرقية</span>
   <a class="badge" href="/" style="margin-inline-start:auto">↩︎ واجهة المستخدم</a>
 </header>
 
@@ -136,9 +136,10 @@
     <div class="card">
       <h3>⬆️ رفع ملف جديد للفهرسة</h3>
       <label class="ghost" style="display:inline-block;padding:9px 16px;border-radius:10px;cursor:pointer;border:1px dashed var(--accent);color:var(--accent);font-weight:600">
-        📎 اختر ملفًا (PDF · Word · نص · Markdown)
-        <input id="up-input" type="file" accept=".pdf,.docx,.txt,.md,.markdown" hidden>
+        📎 اختر ملفًا (PDF · Word · نص · Markdown · صورة)
+        <input id="up-input" type="file" accept=".pdf,.docx,.txt,.md,.markdown,.png,.jpg,.jpeg" hidden>
       </label>
+      <div class="muted" style="margin-top:8px;font-size:11.5px">🔍 المستندات الممسوحة ضوئيًا والصور تُقرأ تلقائيًا عبر OCR بنموذج رؤية محلي (يُضبط من تبويب الإعدادات).</div>
       <div id="up-status" class="muted" style="margin-top:10px"></div>
       <div class="bar" id="up-bar" style="display:none"><i></i></div>
     </div>
@@ -251,6 +252,14 @@
           <label>تداخل المقاطع (كلمات)</label>
           <input id="set-overlap" type="number" min="0" max="400">
         </div>
+        <div class="field">
+          <label>OCR للمستندات الممسوحة</label>
+          <select id="set-ocr-en"><option value="1">مُفعّل</option><option value="0">مُعطّل</option></select>
+        </div>
+        <div class="field">
+          <label>نموذج OCR (رؤية) — من النماذج المثبّتة</label>
+          <select id="set-ocr-model"></select>
+        </div>
       </div>
       <button id="set-save">💾 حفظ الإعدادات</button>
       <span class="muted" id="set-note" style="margin-inline-start:10px"></span>
@@ -272,6 +281,7 @@
 
 <script>
 let PASS = '';
+let ADMIN_TOKEN = '';
 const $ = s => document.querySelector(s);
 const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -293,6 +303,14 @@ async function doLogin() {
   PASS = $('#pass').value;
   try {
     await api('/admin/api/overview');
+    // توكن جلسة مؤقت لمنصة التجربة (SSE) — كي لا تظهر كلمة المرور في الرابط
+    try {
+      const r = await fetch('/admin/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pass: PASS }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.token) ADMIN_TOKEN = d.token;
+    } catch (_) {}
     $('#login').style.display = 'none';
     $('#app').style.display = 'block';
     loadOverview(); loadSettings();
@@ -446,19 +464,26 @@ $('#s-q').addEventListener('keydown', e => { if (e.key === 'Enter') $('#s-btn').
 /* ---- الإعدادات ---- */
 async function loadSettings() {
   const d = await api('/admin/api/overview');
-  const sel = $('#set-llm');
-  const models = d.ollama_models.length ? d.ollama_models : [d.llm];
-  sel.innerHTML = models.map(m => `<option value="${esc(m)}" ${m === d.llm ? 'selected' : ''}>${esc(m)}</option>`).join('');
+  // قائمة نموذج المحادثة (تضمّن النموذج الحالي حتى لو غير مثبّت)
+  const opts = (list, current) => {
+    const models = list.includes(current) || !current ? list : [current, ...list];
+    return (models.length ? models : [current]).map(m =>
+      `<option value="${esc(m)}" ${m === current ? 'selected' : ''}>${esc(m)}</option>`).join('');
+  };
+  $('#set-llm').innerHTML = opts(d.ollama_models, d.llm);
+  $('#set-ocr-model').innerHTML = opts(d.ollama_models, d.ocr_model);
   $('#set-depth').value = d.default_depth;
   $('#set-dist').value = d.max_distance;
   $('#set-chunk').value = d.chunk_words;
   $('#set-overlap').value = d.overlap_words;
+  $('#set-ocr-en').value = d.ocr_enabled ? '1' : '0';
 }
 $('#set-save').addEventListener('click', async () => {
   const body = {
     llm: $('#set-llm').value, default_depth: $('#set-depth').value,
     max_distance: parseFloat($('#set-dist').value),
     chunk_words: parseInt($('#set-chunk').value), overlap_words: parseInt($('#set-overlap').value),
+    ocr_enabled: $('#set-ocr-en').value === '1', ocr_model: $('#set-ocr-model').value.trim(),
   };
   try { const d = await api('/admin/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('#set-note').textContent = '✅ حُفظت';
@@ -597,7 +622,7 @@ function pgAsk() {
   chat.insertAdjacentHTML('beforeend', `<div style="margin-bottom:8px"><b>أنت:</b> ${esc(q)}</div>`);
   const ans = document.createElement('div'); ans.style.marginBottom = '14px';
   ans.innerHTML = '<b>النموذج:</b> <span class="muted">…</span>'; chat.appendChild(ans); chat.scrollTop = chat.scrollHeight;
-  const p = new URLSearchParams({ pass: PASS, q, depth: $('#pg-depth').value, source: $('#pg-source').value, dataset: $('#pg-dataset').value });
+  const p = new URLSearchParams({ token: ADMIN_TOKEN, q, depth: $('#pg-depth').value, source: $('#pg-source').value, dataset: $('#pg-dataset').value });
   const es = new EventSource('/admin/api/ask?' + p.toString());
   let raw = '', got = false;
   es.addEventListener('token', e => { if (!got) { ans.innerHTML = '<b>النموذج:</b> '; got = true; } raw += JSON.parse(e.data).t; ans.innerHTML = '<b>النموذج:</b> ' + esc(raw); chat.scrollTop = chat.scrollHeight; });

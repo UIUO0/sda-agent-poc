@@ -3,6 +3,8 @@
 app.py — واجهة ويب محلية للمحادثة مع مستنداتك (بدون أي اعتماديات إضافية).
 الاستخدام: python3 app.py  ثم افتح http://localhost:8765
 """
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -10,6 +12,7 @@ import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -27,6 +30,21 @@ from query import (CHAT_PROMPT, FALLBACK_PROMPT, GENERAL_PROMPT, GENERAL_STYLES,
                    greeting_reply, match_score, build_answer_messages)
 
 FEEDBACK_FILE = Path(__file__).parent / "feedback.jsonl"
+
+# ===== سجل التدقيق (audit log): من فعل ماذا ومتى — لأغراض الحوكمة والمساءلة =====
+# ملاحظة: يحتوي نصوص الأسئلة، لذا يُستبعد من المستودع ويُعامَل كبيانات تشغيلية.
+AUDIT_FILE = Path(__file__).parent / "audit.jsonl"
+_audit_lock = threading.Lock()
+
+
+def audit_log(event, **fields):
+    rec = {"ts": datetime.now().isoformat(timespec="seconds"), "event": event}
+    rec.update(fields)
+    try:
+        with _audit_lock, open(AUDIT_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # التدقيق لا يجب أن يُعطّل الخدمة
 
 
 def _g(part, key):
@@ -80,6 +98,36 @@ DEFAULT_DEPTH = "balanced"  # المستوى الافتراضي (قابل للت
 ACCESS_FILE = BASE_DIR / "access.json"
 ALL_DATA = "كل البيانات"          # مجموعة بيانات ثابتة تعني كل الملفات (وصول كامل)
 USER_SESSIONS = {}                 # token -> username (جلسات المستخدمين في الذاكرة)
+ADMIN_SESSIONS = set()             # توكنات جلسات الأدمن المؤقتة (تُفرَّغ عند إعادة التشغيل)
+
+# ===== تجزئة كلمات المرور (مكتبة قياسية فقط — لا اعتمادية خارجية، يعمل دون إنترنت) =====
+_PBKDF2_ROUNDS = 200_000
+_HASH_PREFIX = "pbkdf2_sha256"
+
+
+def hash_password(password: str) -> str:
+    """يُرجع تجزئة كلمة المرور بصيغة  pbkdf2_sha256$rounds$salt$hash (آمنة للتخزين)."""
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                             bytes.fromhex(salt), _PBKDF2_ROUNDS)
+    return f"{_HASH_PREFIX}${_PBKDF2_ROUNDS}${salt}${dk.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """تحقّق بزمن ثابت من مطابقة كلمة المرور للتجزئة المخزّنة."""
+    try:
+        prefix, rounds, salt, digest = stored.split("$", 3)
+        if prefix != _HASH_PREFIX:
+            return False
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                                 bytes.fromhex(salt), int(rounds))
+        return hmac.compare_digest(dk.hex(), digest)
+    except Exception:
+        return False
+
+
+def _is_hashed(value: str) -> bool:
+    return isinstance(value, str) and value.startswith(_HASH_PREFIX + "$")
 
 
 def load_access():
@@ -90,6 +138,16 @@ def load_access():
     d.setdefault("data_groups", {})   # {اسم: [أسماء الملفات]}
     d.setdefault("user_groups", {})   # {اسم: {"data_groups": [أسماء مجموعات البيانات]}}
     d.setdefault("users", {})         # {اسم_المستخدم: {"password": .., "group": اسم_مجموعة_مستخدمين}}
+    # ترحيل تلقائي: أي كلمة مرور مخزّنة نصاً صريحاً تُجزَّأ وتُحفَظ (لمرة واحدة، دون تغيير كلمة المرور نفسها)
+    migrated = False
+    for _uname, _u in d["users"].items():
+        _pw = _u.get("password", "")
+        if _pw and not _is_hashed(_pw):
+            _u["password"] = hash_password(_pw)
+            migrated = True
+    if migrated:
+        save_access(d)
+        print("🔐 تم ترحيل كلمات المرور في access.json إلى صيغة مجزّأة (pbkdf2).")
     return d
 
 
@@ -98,7 +156,12 @@ def save_access(d):
 
 
 def user_allowed_sources(username):
-    """None = وصول كامل (كل البيانات). set = أسماء الملفات المسموحة. set فارغة = لا وصول."""
+    """None = وصول كامل (كل البيانات). set = أسماء الملفات المسموحة. set فارغة = لا وصول.
+
+    ملاحظة دمج Azure: هذه الدالة تُقرِّر الصلاحيات انطلاقاً من مجموعة المستخدم.
+    عند التكامل مع Entra ID تبقى كما هي — فقط مرِّر اسم المستخدم/المجموعة القادم
+    من مطالبات توكن Azure بدل قراءته من access.json المحلي.
+    """
     acc = load_access()
     u = acc["users"].get(username)
     if not u:
@@ -152,6 +215,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(sse("err", {"msg": "سؤال فارغ"}))
                 return
             allowed = user_allowed_sources(username)
+            audit_log("ask", user=username, q=q, depth=depth, source=source)
             try:
                 self._answer(q, depth, source, allowed=allowed)
             except (BrokenPipeError, ConnectionResetError):
@@ -168,10 +232,11 @@ class Handler(BaseHTTPRequestHandler):
             self._headers("text/html; charset=utf-8")
             self.wfile.write(ADMIN_FILE.read_text(encoding="utf-8").encode("utf-8"))
         elif url.path == "/admin/api/ask":
-            # منصة تجربة النموذج (SSE) — التحقق عبر كلمة المرور في الاستعلام (EventSource بلا ترويسات)
+            # منصة تجربة النموذج (SSE) — التحقق عبر توكن جلسة مؤقت (EventSource بلا ترويسات)
+            # التوكن يُصدَر من /admin/login، فلا تظهر كلمة المرور في الرابط أو السجلات.
             params = parse_qs(url.query)
             self._headers("text/event-stream; charset=utf-8")
-            if params.get("pass", [""])[0] != ADMIN_PASS:
+            if params.get("token", [""])[0] not in ADMIN_SESSIONS:
                 self.wfile.write(sse("err", {"msg": "غير مصرّح"}))
                 return
             q = params.get("q", [""])[0].strip()
@@ -233,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
 
     def _admin_ok(self):
-        return self.headers.get("X-Admin-Pass", "") == ADMIN_PASS
+        return hmac.compare_digest(self.headers.get("X-Admin-Pass", ""), ADMIN_PASS)
 
     def _user_ok(self):
         return USER_SESSIONS.get(self.headers.get("X-User-Token", "")) is not None
@@ -295,6 +360,7 @@ class Handler(BaseHTTPRequestHandler):
                 "llm": query.LLM_MODEL, "embed": EMBED_MODEL, "dims": 1024,
                 "chunk_words": ingest.CHUNK_WORDS, "overlap_words": ingest.OVERLAP_WORDS,
                 "max_distance": query.MAX_DISTANCE, "default_depth": DEFAULT_DEPTH,
+                "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL,
                 "files_count": len(per), "total_chunks": sum(per.values()),
                 "feedback_count": fb, "ollama_models": self._ollama_models(),
                 "attached_session": list(ATTACHED["names"]),
@@ -519,9 +585,14 @@ class Handler(BaseHTTPRequestHandler):
                     ingest.OVERLAP_WORDS = int(data["overlap_words"])
                 if data.get("default_depth") in DEPTHS:
                     DEFAULT_DEPTH = data["default_depth"]
+                if data.get("ocr_model"):
+                    ingest.OCR_MODEL = str(data["ocr_model"])
+                if data.get("ocr_enabled") is not None:
+                    ingest.OCR_ENABLED = bool(data["ocr_enabled"])
                 self._json({"ok": True, "llm": query.LLM_MODEL, "max_distance": query.MAX_DISTANCE,
                             "chunk_words": ingest.CHUNK_WORDS, "overlap_words": ingest.OVERLAP_WORDS,
-                            "default_depth": DEFAULT_DEPTH})
+                            "default_depth": DEFAULT_DEPTH,
+                            "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return
@@ -597,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
             entry = acc["users"].get(username, {"password": "", "group": ""})
             entry["group"] = group
             if password:  # لا نمسح كلمة المرور إن تُركت فارغة عند التعديل
-                entry["password"] = str(password)
+                entry["password"] = hash_password(str(password))
             if not entry.get("password"):
                 self._json({"error": "كلمة مرور المستخدم مطلوبة"}, 400)
                 return
@@ -618,6 +689,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        if url.path == "/admin/login":
+            # يصدر توكن جلسة أدمن مؤقت — لتفادي تمرير كلمة المرور في رابط EventSource
+            data = self._read_json()
+            if not hmac.compare_digest(str(data.get("pass", "")), ADMIN_PASS):
+                self._json({"error": "كلمة المرور غير صحيحة"}, 401)
+                return
+            token = secrets.token_urlsafe(24)
+            ADMIN_SESSIONS.add(token)
+            self._json({"ok": True, "token": token})
+            return
         if url.path.startswith("/admin/api/"):
             try:
                 self._admin_post(url.path)
@@ -625,16 +706,24 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             return
         if url.path == "/user/login":
+            # ┌── نقطة دمج Azure/Entra ID ───────────────────────────────────────┐
+            # │ هنا تُستبدل المصادقة المحلية بتدفق OIDC/OAuth2 ضد Entra ID (MSAL). │
+            # │ بعد التحقق من توكن Azure: استخرج هوية الموظف ومطالبة المجموعة       │
+            # │ (group/role claim)، واربطها بمجموعة في access.json ثم املأ         │
+            # │ USER_SESSIONS كالمعتاد — بقية النظام (الصلاحيات) يبقى دون تغيير.   │
+            # └──────────────────────────────────────────────────────────────────┘
             data = self._read_json()
             username = str(data.get("username", "")).strip()
             password = str(data.get("password", ""))
             acc = load_access()
             u = acc["users"].get(username)
-            if not u or u.get("password") != password:
+            if not u or not verify_password(password, u.get("password", "")):
+                audit_log("login", user=username, ok=False)
                 self._json({"error": "اسم المستخدم أو كلمة المرور غير صحيحة"}, 401)
                 return
             token = secrets.token_urlsafe(24)
             USER_SESSIONS[token] = username
+            audit_log("login", user=username, ok=True)
             allowed = user_allowed_sources(username)
             grp = u.get("group", "")
             self._json({"ok": True, "token": token, "username": username, "group": grp,
@@ -933,6 +1022,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    if ADMIN_PASS == "admin":
+        print("⚠️  تحذير أمني: كلمة مرور لوحة الإدارة هي القيمة الافتراضية \"admin\".")
+        print("    اضبط كلمة مرور قوية قبل أي تشغيل غير محلي:  export RAG_ADMIN_PASSWORD='...'")
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"✅ الواجهة شغّالة: {url}  (Ctrl+C للإيقاف)")
