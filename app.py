@@ -302,6 +302,8 @@ class Handler(BaseHTTPRequestHandler):
             "ollama_models": models,
             "depths": {k: {"k": v["k"], "verify": bool(v.get("verify"))}
                        for k, v in DEPTHS.items()},
+            "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL,
+            "ocr_engine": ingest.OCR_ENGINE,
         }
 
     # ============================ لوحة الإدارة ============================
@@ -611,11 +613,14 @@ class Handler(BaseHTTPRequestHandler):
                     ingest.OCR_MODEL = str(data["ocr_model"])
                 if data.get("ocr_enabled") is not None:
                     ingest.OCR_ENABLED = bool(data["ocr_enabled"])
+                if data.get("ocr_engine") in ("tesseract", "vision"):
+                    ingest.OCR_ENGINE = data["ocr_engine"]
                 self._json({"ok": True, "llm": query.LLM_MODEL, "max_distance": query.MAX_DISTANCE,
                             "chunk_words": ingest.CHUNK_WORDS, "overlap_words": ingest.OVERLAP_WORDS,
                             "default_depth": DEFAULT_DEPTH,
                             "depths": {k: {"k": v["k"], "verify": bool(v.get("verify"))} for k, v in DEPTHS.items()},
-                            "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL})
+                            "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL,
+                            "ocr_engine": ingest.OCR_ENGINE})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return

@@ -3,3 +3,5 @@ ollama
 pypdf
 python-docx
 pymupdf
+pytesseract
+pillow

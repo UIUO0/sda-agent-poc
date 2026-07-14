@@ -23,9 +23,15 @@ OVERLAP_WORDS = int(os.environ.get("RAG_OVERLAP_WORDS", "75"))  # التداخل
 MIN_CHUNK_WORDS = 25   # أصغر مقطع مقبول
 BATCH_SIZE = 16
 
-# ---------- OCR للمستندات الممسوحة ضوئيًا/الصور (عبر نموذج رؤية محلي في Ollama) ----------
+# ---------- OCR للمستندات الممسوحة ضوئيًا/الصور ----------
+# محرّكان متاحان:
+#   tesseract → محرّك محلي خفيف على CPU (الأنسب للسيرفرات) — يتطلب حزم النظام:
+#               tesseract-ocr + tesseract-ocr-ara، وحزمة بايثون pytesseract (+ pillow)
+#   vision    → نموذج رؤية محلي في Ollama (أدقّ للمسح الرديء/المعقّد، لكن أثقل على CPU)
 OCR_ENABLED = os.environ.get("RAG_OCR", "1").lower() not in ("0", "false", "no")
-OCR_MODEL = os.environ.get("RAG_OCR_MODEL", "qwen2.5vl:3b")  # خفيف لـ MacBook Air 16GB؛ للجهاز القوي qwen2.5vl:32b
+OCR_ENGINE = os.environ.get("RAG_OCR_ENGINE", "tesseract").strip().lower()  # tesseract | vision
+OCR_LANG = os.environ.get("RAG_OCR_LANG", "ara+eng")  # لغات Tesseract
+OCR_MODEL = os.environ.get("RAG_OCR_MODEL", "qwen2.5vl:3b")  # نموذج الرؤية (لمحرّك vision)
 OCR_MIN_CHARS = int(os.environ.get("RAG_OCR_MIN_CHARS", "20"))  # صفحة نصها أقل من ذلك = ممسوحة
 OCR_DPI = int(os.environ.get("RAG_OCR_DPI", "200"))
 OCR_PROMPT = ("استخرج كل النص الظاهر في هذه الصورة حرفيًا وبدقة تامة باللغة العربية "
@@ -33,8 +39,22 @@ OCR_PROMPT = ("استخرج كل النص الظاهر في هذه الصورة 
               "أخرج النص المستخرج فقط دون أي شرح أو تعليق أو مقدمات.")
 
 
-def ocr_image(png_bytes):
-    """OCR لصورة (bytes بصيغة PNG) عبر نموذج الرؤية المحلي. يُرجع النص أو '' عند الفشل."""
+def ocr_tesseract(png_bytes):
+    """OCR عبر Tesseract (خفيف، CPU، محلي بالكامل). يُرجع النص أو '' عند الفشل."""
+    try:
+        import io
+        import pytesseract
+        from PIL import Image, ImageOps
+        img = ImageOps.grayscale(Image.open(io.BytesIO(png_bytes)))  # التدرّج الرمادي يحسّن الدقة
+        return pytesseract.image_to_string(img, lang=OCR_LANG).strip()
+    except Exception as e:
+        print(f"⚠️ تعذّر تشغيل Tesseract OCR — تأكد من تثبيت: "
+              f"tesseract-ocr و tesseract-ocr-ara و pytesseract. ({e})")
+        return ""
+
+
+def ocr_vision(png_bytes):
+    """OCR عبر نموذج الرؤية المحلي في Ollama. يُرجع النص أو '' عند الفشل."""
     try:
         resp = ollama.chat(
             model=OCR_MODEL,
@@ -44,8 +64,15 @@ def ocr_image(png_bytes):
         msg = resp["message"] if isinstance(resp, dict) else resp.message
         return (msg["content"] if isinstance(msg, dict) else msg.content).strip()
     except Exception as e:
-        print(f"⚠️ تعذّر تشغيل OCR (النموذج {OCR_MODEL}): {e}")
+        print(f"⚠️ تعذّر تشغيل OCR (نموذج الرؤية {OCR_MODEL}): {e}")
         return ""
+
+
+def ocr_image(png_bytes):
+    """يوجّه صورة الصفحة إلى محرّك OCR المختار (Tesseract افتراضيًا، أو نموذج الرؤية)."""
+    if OCR_ENGINE == "vision":
+        return ocr_vision(png_bytes)
+    return ocr_tesseract(png_bytes)
 
 # فواصل الجمل العربية واللاتينية
 _SENT_SPLIT = re.compile(r"(?<=[.!؟?؛…])\s+")

@@ -186,7 +186,11 @@ bash run_ingest.sh   # إعادة الفهرسة بعد إضافة أو تعدي
 | `RAG_DEPTH` | `balanced` | مستوى التفكير الافتراضي |
 | `RAG_ADMIN_PASSWORD` | `admin` | كلمة مرور لوحة الإدارة (**غيّرها قبل أي تشغيل غير محلي**) |
 | `RAG_OCR` | `1` | تفعيل OCR للمستندات الممسوحة والصور |
-| `RAG_OCR_MODEL` | `qwen2.5vl:3b` | نموذج الرؤية للـ OCR (للجهاز القوي `qwen2.5vl:32b`) |
+| `RAG_OCR_ENGINE` | `tesseract` | محرّك OCR: `tesseract` (خفيف/CPU) أو `vision` (نموذج رؤية أدقّ وأثقل) |
+| `RAG_OCR_LANG` | `ara+eng` | لغات Tesseract |
+| `RAG_OCR_MODEL` | `qwen2.5vl:3b` | نموذج الرؤية (يُستخدم مع محرّك `vision` فقط) |
+
+> **OCR — محرّكان:** الافتراضي `tesseract` (الأنسب للسيرفرات وCPU) ويتطلب حزم النظام `tesseract-ocr` و`tesseract-ocr-ara`. يمكن التبديل إلى محرّك الرؤية (`vision`) للحصول على دقة أعلى في المسح الرديء مقابل حِمل أثقل على المعالج. القيمة قابلة للتبديل حيّاً من لوحة الإدارة. على أوبونتو: `sudo apt install tesseract-ocr tesseract-ocr-ara`.
 
 > عدد المقاطع لكل مستوى تفكير يُضبط من لوحة الإدارة (تبويب الإعدادات) ويُطبَّق عالمياً فوراً.
 

@@ -334,7 +334,15 @@
           <select id="set-ocr-en"><option value="1">مُفعّل</option><option value="0">مُعطّل</option></select>
         </div>
         <div class="field">
-          <label>نموذج OCR (رؤية) — من النماذج المثبّتة</label>
+          <label>محرّك OCR</label>
+          <select id="set-ocr-engine">
+            <option value="tesseract">⚡ Tesseract — خفيف وسريع (مناسب للسيرفر/CPU)</option>
+            <option value="vision">🔎 نموذج رؤية — أدقّ لكن أثقل على CPU</option>
+          </select>
+          <div class="muted" id="ocr-engine-hint" style="margin-top:6px; line-height:1.7"></div>
+        </div>
+        <div class="field">
+          <label>نموذج OCR (يُستخدم مع محرّك «رؤية» فقط) — من النماذج المثبّتة</label>
           <select id="set-ocr-model"></select>
         </div>
       </div>
@@ -577,7 +585,16 @@ async function loadSettings() {
   $('#set-chunk').value = d.chunk_words;
   $('#set-overlap').value = d.overlap_words;
   $('#set-ocr-en').value = d.ocr_enabled ? '1' : '0';
+  $('#set-ocr-engine').value = d.ocr_engine || 'tesseract';
+  updateOcrHint();
 }
+function updateOcrHint() {
+  const v = $('#set-ocr-engine').value;
+  $('#ocr-engine-hint').innerHTML = v === 'vision'
+    ? '⚠️ يتطلب سحب نموذج الرؤية عبر Ollama (<code>ollama pull qwen2.5vl:3b</code>) — أثقل على المعالج، أبطأ على السيرفرات بلا كرت رسومي.'
+    : '✅ يتطلب على الخادم: <code>sudo apt install tesseract-ocr tesseract-ocr-ara</code> — خفيف وسريع على CPU، دون أي نموذج.';
+}
+$('#set-ocr-engine').addEventListener('change', updateOcrHint);
 $('#set-save').addEventListener('click', async () => {
   const body = {
     llm: $('#set-llm').value, default_depth: $('#set-depth').value,
@@ -588,6 +605,7 @@ $('#set-save').addEventListener('click', async () => {
     },
     chunk_words: parseInt($('#set-chunk').value), overlap_words: parseInt($('#set-overlap').value),
     ocr_enabled: $('#set-ocr-en').value === '1', ocr_model: $('#set-ocr-model').value.trim(),
+    ocr_engine: $('#set-ocr-engine').value,
   };
   try { const d = await api('/admin/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('#set-note').textContent = '✅ حُفظت';
