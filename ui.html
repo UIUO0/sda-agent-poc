@@ -352,6 +352,13 @@
           <option value="general" disabled>معرفة عامة (قريبًا)</option>
         </select>
       </span>
+      <span class="tool" title="عند تطابق السؤال مع قسم كامل في المستند">
+        <span class="tool-ic">📖</span>
+        <select id="section-select" class="tool-select" title="عند تطابق السؤال مع قسم: اجلب القسم كاملًا أم أعلى المقاطع تطابقًا فقط">
+          <option value="0">أعلى المقاطع تطابقًا</option>
+          <option value="1">القسم كامل عند التطابق</option>
+        </select>
+      </span>
       <span id="attach-msg" class="tool">
         <label class="attach-btn msg-attach" title="إرفاق مستند مؤقت للجلسة">📎 إرفاق<input type="file" accept=".pdf,.docx,.txt,.md,.markdown" hidden></label>
       </span>
@@ -462,6 +469,15 @@ sourceSel.addEventListener('change', () => {
   localStorage.setItem('rag_source', source);
 });
 
+/* خيار: جلب القسم كاملًا عند التطابق، أم أعلى المقاطع فقط */
+let fullSection = localStorage.getItem('rag_full_section') || '0';
+const sectionSel = document.getElementById('section-select');
+sectionSel.value = fullSection;
+sectionSel.addEventListener('change', () => {
+  fullSection = sectionSel.value;
+  localStorage.setItem('rag_full_section', fullSection);
+});
+
 form.addEventListener('submit', e => {
   e.preventDefault();
   const q = input.value.trim();
@@ -519,7 +535,7 @@ function ask(q) {
   let chunksData = [], genStats = null, sectionName = '';
   const histParam = historyToSend.length
     ? '&history=' + encodeURIComponent(JSON.stringify(historyToSend)) : '';
-  const es = new EventSource('/ask?q=' + encodeURIComponent(q) + '&depth=' + depth + '&source=' + source + '&token=' + encodeURIComponent(TOKEN) + histParam);
+  const es = new EventSource('/ask?q=' + encodeURIComponent(q) + '&depth=' + depth + '&source=' + source + '&full_section=' + fullSection + '&token=' + encodeURIComponent(TOKEN) + histParam);
 
   const setStage = id => {
     let passed = true;

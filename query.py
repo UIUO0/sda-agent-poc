@@ -269,7 +269,7 @@ def _name_boosts(col, question: str):
     return boosts
 
 
-def select_hits(col, question: str, cfg, allowed=None):
+def select_hits(col, question: str, cfg, allowed=None, full_section=False):
     """
     اختيار ذكي: يجمع مرشحين من كل الملفات، يرتّب الملفات حسب أفضل مقطع فيها،
     ثم يعتمد أقل عدد ملفات يكفي — لا يُضاف ملف إلا إذا كانت مقاطعه قريبة من الأفضل.
@@ -317,9 +317,9 @@ def select_hits(col, question: str, cfg, allowed=None):
     if len(section_hits) >= 3:
         relevant = section_hits
 
-    # جلب القسم كاملًا: تطابق قوي مع عنوان قسم = السؤال عن القسم/السياسة نفسها،
-    # فنجلب كل مقاطع القسم بترتيبها الأصلي (لا أشباهها فقط) لضمان تغطية شاملة
-    if section_hits:
+    # جلب القسم كاملًا: يُفعَّل فقط باختيار المستخدم (full_section) عند تطابق قوي مع عنوان قسم.
+    # الافتراضي: أعلى المقاطع تطابقًا فقط (يحترم عدد المقاطع k). عند التفعيل: القسم بالكامل.
+    if full_section and section_hits:
         top = min(section_hits, key=lambda h: h[2])
         if head_boost(top[1]) >= 2 * HEAD_BOOST:
             heading = top[1].get("heading", "")

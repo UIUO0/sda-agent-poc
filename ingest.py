@@ -23,6 +23,14 @@ OVERLAP_WORDS = int(os.environ.get("RAG_OVERLAP_WORDS", "75"))  # التداخل
 MIN_CHUNK_WORDS = 25   # أصغر مقطع مقبول
 BATCH_SIZE = 16
 
+# طريقة اكتشاف الأقسام أثناء التقطيع:
+#   "heading"  : بالعناوين والترقيم (الافتراضي — يحافظ على الأقسام الرسمية)
+#   "semantic" : تقطيع دلالي متتابع (Sequential Semantic Segmentation) يكسر عند تغيّر
+#                الموضوع دلاليًا، مع احترام العناوين الرسمية كحدود صلبة (هجين)
+CHUNK_MODE = os.environ.get("RAG_CHUNK_MODE", "heading")
+# مئينُ مسافات الجمل المتتالية الذي يُعتبر فوقه حدَّ قسم (أعلى = أقسام أكبر وأقل عددًا)
+SEMANTIC_PERCENTILE = int(os.environ.get("RAG_SEMANTIC_PERCENTILE", "90"))
+
 # ---------- OCR للمستندات الممسوحة ضوئيًا/الصور ----------
 # محرّكان متاحان:
 #   tesseract → محرّك محلي خفيف على CPU (الأنسب للسيرفرات) — يتطلب حزم النظام:
@@ -229,6 +237,16 @@ def _sentences(text: str):
 
 
 def chunk_paragraphs(paragraphs):
+    """موزّع: يختار طريقة التقطيع حسب CHUNK_MODE (العناوين أو الدلالي المتتابع)."""
+    if CHUNK_MODE == "semantic":
+        try:
+            return chunk_semantic(paragraphs)
+        except Exception as e:
+            print(f"⚠️ فشل التقطيع الدلالي ({e}) — الرجوع لطريقة العناوين.")
+    return _chunk_by_heading(paragraphs)
+
+
+def _chunk_by_heading(paragraphs):
     """
     تجميع الجمل في مقاطع ~CHUNK_WORDS كلمة بتداخل جُملي ~OVERLAP_WORDS،
     مع إلحاق عنوان القسم الحالي بكل مقطع وتتبّع نطاق الصفحات.
@@ -297,6 +315,102 @@ def chunk_paragraphs(paragraphs):
                     break
             buf, count, fresh = keep, kc, 0
     close_section()
+    return chunks
+
+
+# ---------- التقطيع الدلالي المتتابع (Sequential Semantic Segmentation) ----------
+
+def _cosine(a, b):
+    s = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return s / (na * nb) if na and nb else 0.0
+
+
+def _percentile(values, p):
+    if not values:
+        return 1.0
+    vs = sorted(values)
+    k = (len(vs) - 1) * (p / 100.0)
+    lo = int(k)
+    hi = min(lo + 1, len(vs) - 1)
+    return vs[lo] + (vs[hi] - vs[lo]) * (k - lo)
+
+
+def _pack_segment(sents, head_meta, head_prefix):
+    """تعبئة جمل قسم دلالي في مقاطع ~CHUNK_WORDS مع تداخل داخل القسم فقط."""
+    out, buf, count, fresh = [], [], 0, 0
+
+    def flush():
+        text = " ".join(s for s, _ in buf)
+        if head_prefix:
+            text = f"({head_prefix}) {text}"
+        pages = sorted({p for _, p in buf if p is not None})
+        out.append({"text": text, "heading": head_meta,
+                    "pages": f"{pages[0]}-{pages[-1]}" if pages else ""})
+
+    for sent, page in sents:
+        buf.append((sent, page))
+        w = len(sent.split())
+        count += w
+        fresh += w
+        if count >= CHUNK_WORDS:
+            flush()
+            keep, kc = [], 0
+            for u in reversed(buf):
+                keep.insert(0, u)
+                kc += len(u[0].split())
+                if kc >= OVERLAP_WORDS:
+                    break
+            buf, count, fresh = keep, kc, 0
+    if buf and fresh > 0:
+        flush()
+    return out
+
+
+def chunk_semantic(paragraphs):
+    """يقطّع النص عند تغيّر الموضوع دلاليًا (مسافة الجمل المتتالية فوق عتبة المئين)،
+    مع احترام العناوين الرسمية المكتشفة كحدود صلبة (فلا يُدمج قسمان رسميان)."""
+    sents = []            # [text, page, detected_heading]
+    heading = ""
+    for text, page in paragraphs:
+        if text.startswith(HEAD_MARK):
+            heading = text[len(HEAD_MARK):]
+            continue
+        if _is_heading(text):
+            heading = re.sub(r"\s+", " ", text).strip()
+            continue
+        for s in _sentences(text):
+            s = s.strip()
+            if s:
+                sents.append([s, page, heading])
+    if len(sents) < 2:
+        return _chunk_by_heading(paragraphs)
+
+    # تضمين الجمل (على دفعات) ثم حساب مسافات الجمل المتتالية
+    embeds = []
+    texts = [s[0] for s in sents]
+    for i in range(0, len(texts), 64):
+        embeds.extend(embed(texts[i:i + 64]))
+    dists = [1 - _cosine(embeds[i - 1], embeds[i]) for i in range(1, len(sents))]
+    thr = _percentile(dists, SEMANTIC_PERCENTILE)
+
+    # بناء الأقسام: حدّ عند تغيّر العنوان الرسمي أو تجاوز العتبة الدلالية
+    segments = [[sents[0]]]
+    for i in range(1, len(sents)):
+        if sents[i][2] != sents[i - 1][2] or dists[i - 1] > thr:
+            segments.append([])
+        segments[-1].append(sents[i])
+
+    chunks = []
+    for idx, seg in enumerate(segments):
+        real_head = next((h for _, _, h in seg if h), "")
+        if real_head:
+            head_meta, head_prefix = real_head, real_head
+        else:  # قسم دلالي بلا عنوان رسمي: تسمية للتجميع دون تلويث نص المقطع
+            snippet = " ".join(seg[0][0].split()[:6])
+            head_meta, head_prefix = f"§{idx + 1}: {snippet}", ""
+        chunks.extend(_pack_segment([(s[0], s[1]) for s in seg], head_meta, head_prefix))
     return chunks
 
 

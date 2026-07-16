@@ -56,10 +56,12 @@
            border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; text-align: center; }
   #login h2 { font-size: 18px; margin-bottom: 6px; }
   #login p { font-size: 12.5px; color: var(--muted); margin-bottom: 18px; }
-  input, select {
+  input, select, textarea {
     font: inherit; font-size: 13px; width: 100%; padding: 10px 12px;
     border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--ink);
   }
+  textarea.prompt-box { resize: vertical; line-height: 1.8; direction: rtl; }
+  textarea.prompt-box:focus { outline: none; border-color: var(--accent); }
   button {
     font: inherit; cursor: pointer; border: 0; border-radius: 10px;
     padding: 9px 16px; font-size: 13px; font-weight: 600; background: var(--accent); color: #fff;
@@ -155,6 +157,38 @@
   @media (prefers-reduced-motion: reduce) {
     header::after, header h1::before, #login, .modal-card, .msg { animation: none !important; }
   }
+
+  /* ---- القياس والأداء ---- */
+  .metrics-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+                 background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+                 padding: 10px 14px; margin-bottom: 16px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ok); }
+  .live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok);
+              animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(47,181,115,.5); } 70% { box-shadow: 0 0 0 8px rgba(47,181,115,0); } 100% { box-shadow: 0 0 0 0 rgba(47,181,115,0); } }
+  .gauge-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-bottom: 16px; }
+  .gauge { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+           padding: 16px; text-align: center; }
+  .gauge svg { width: 130px; height: 130px; }
+  .gauge .g-lbl { font-size: 13px; font-weight: 600; margin-top: 8px; }
+  .gauge .g-sub { font-size: 11px; color: var(--muted); margin-top: 3px; direction: ltr; }
+  .g-track { stroke: var(--border); }
+  .m-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); gap: 16px; margin-bottom: 16px; }
+  .m-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+  .m-card h4 { font-size: 13px; margin-bottom: 12px; display: flex; align-items: center; gap: 7px; }
+  .m-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px;
+           padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .m-row:last-child { border-bottom: 0; }
+  .m-row .k { color: var(--muted); }
+  .m-row .v { font-weight: 600; text-align: left; direction: ltr; }
+  .stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px,1fr)); gap: 12px; }
+  .tile { background: var(--bg); border-radius: 12px; padding: 14px; text-align: center; }
+  .tile .n { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .tile .l { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .corebar { height: 7px; border-radius: 99px; background: var(--border); overflow: hidden; margin-top: 4px; }
+  .corebar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+  .chip-mini { display: inline-block; font-size: 10.5px; background: var(--accent-soft); color: var(--accent);
+               border-radius: 99px; padding: 1px 8px; margin-inline-start: 6px; }
 </style>
 </head>
 <body>
@@ -180,11 +214,32 @@
   <div id="tabs">
     <button data-t="overview" class="on">📊 نظرة عامة</button>
     <button data-t="files">🗂️ الملفات</button>
+    <button data-t="metrics">📈 القياس والأداء</button>
     <button data-t="access">🔑 صلاحيات الوصول</button>
     <button data-t="playground">🧪 تجربة النموذج</button>
     <button data-t="search">🔍 اختبار الاسترجاع</button>
     <button data-t="settings">⚙️ الإعدادات</button>
     <button data-t="feedback">💬 التقييمات</button>
+  </div>
+
+  <!-- القياس والأداء -->
+  <div class="panel" data-p="metrics">
+    <div class="metrics-bar">
+      <span class="live"><span class="live-dot"></span> مباشر</span>
+      <span class="muted" id="m-updated">—</span>
+      <span style="margin-inline-start:auto"></span>
+      <label class="muted" style="font-size:12px">التحديث كل
+        <select id="m-interval" style="width:auto;display:inline-block;padding:4px 8px">
+          <option value="2000">2 ثانية</option>
+          <option value="5000" selected>5 ثوانٍ</option>
+          <option value="10000">10 ثوانٍ</option>
+        </select>
+      </label>
+      <button class="ghost sm" id="m-toggle">⏸ إيقاف</button>
+      <button class="ghost sm" id="m-refresh">🔄 تحديث الآن</button>
+    </div>
+    <div id="m-gauges" class="gauge-row"></div>
+    <div id="m-body"></div>
   </div>
 
   <!-- نظرة عامة -->
@@ -321,6 +376,16 @@
             <div><label style="font-size:11px; margin-bottom:3px">🎯 دقة قصوى</label><input id="set-k-max" type="number" min="1" max="50" step="1"></div>
           </div>
         </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>أسلوب الإجابة (هندسة الموجّه) لكل مستوى تفكير — قابل للتعديل والحفظ</label>
+          <div class="muted" style="margin-bottom:8px; line-height:1.7">النص المكتوب هنا يُدمج في موجّه النموذج ويتحكّم بأسلوب الإجابة وطولها لكل مستوى. عدّله واحفظ ليسري فورًا على كل المستخدمين (لا يتطلب إعادة فهرسة).</div>
+          <div style="display:grid; gap:10px">
+            <div><label style="font-size:11.5px; margin-bottom:4px">🚀 سريع</label><textarea id="set-style-fast" class="prompt-box" rows="2"></textarea></div>
+            <div><label style="font-size:11.5px; margin-bottom:4px">⚖️ متوازن</label><textarea id="set-style-balanced" class="prompt-box" rows="2"></textarea></div>
+            <div><label style="font-size:11.5px; margin-bottom:4px">🔬 عميق</label><textarea id="set-style-deep" class="prompt-box" rows="3"></textarea></div>
+            <div><label style="font-size:11.5px; margin-bottom:4px">🎯 دقة قصوى</label><textarea id="set-style-max" class="prompt-box" rows="3"></textarea></div>
+          </div>
+        </div>
         <div class="field">
           <label>كلمات المقطع (تُطبَّق على الفهرسة القادمة)</label>
           <input id="set-chunk" type="number" min="50" max="1000">
@@ -344,6 +409,18 @@
         <div class="field">
           <label>نموذج OCR (يُستخدم مع محرّك «رؤية» فقط) — من النماذج المثبّتة</label>
           <select id="set-ocr-model"></select>
+        </div>
+        <div class="field">
+          <label>طريقة اكتشاف الأقسام (تتطلب إعادة فهرسة)</label>
+          <select id="set-chunk-mode">
+            <option value="heading">📑 بالعناوين — يحافظ على الأقسام الرسمية</option>
+            <option value="semantic">🧠 دلالي متتابع — يكسر عند تغيّر الموضوع (هجين)</option>
+          </select>
+          <div class="muted" style="margin-top:6px; line-height:1.7">الوضع الدلالي يحترم العناوين الرسمية كحدود، ويضيف كسرًا عند تغيّر الموضوع في المناطق بلا عناوين.</div>
+        </div>
+        <div class="field">
+          <label>حساسية الكسر الدلالي (مئين 50–99، الأعلى = أقسام أكبر)</label>
+          <input id="set-sem-pct" type="number" min="50" max="99">
         </div>
       </div>
       <button id="set-save">💾 حفظ الإعدادات</button>
@@ -431,6 +508,7 @@ document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click
   if (b.dataset.t === 'feedback') loadFeedback();
   if (b.dataset.t === 'access') loadAccess();
   if (b.dataset.t === 'playground') loadPlayground();
+  if (b.dataset.t === 'metrics') startMetrics(); else stopMetrics();
 }));
 
 /* ---- نظرة عامة ---- */
@@ -582,10 +660,16 @@ async function loadSettings() {
   $('#set-k-balanced').value = dk.balanced?.k ?? '';
   $('#set-k-deep').value = dk.deep?.k ?? '';
   $('#set-k-max').value = dk.max?.k ?? '';
+  $('#set-style-fast').value = dk.fast?.style ?? '';
+  $('#set-style-balanced').value = dk.balanced?.style ?? '';
+  $('#set-style-deep').value = dk.deep?.style ?? '';
+  $('#set-style-max').value = dk.max?.style ?? '';
   $('#set-chunk').value = d.chunk_words;
   $('#set-overlap').value = d.overlap_words;
   $('#set-ocr-en').value = d.ocr_enabled ? '1' : '0';
   $('#set-ocr-engine').value = d.ocr_engine || 'tesseract';
+  $('#set-chunk-mode').value = d.chunk_mode || 'heading';
+  $('#set-sem-pct').value = d.semantic_percentile ?? 90;
   updateOcrHint();
 }
 function updateOcrHint() {
@@ -603,15 +687,155 @@ $('#set-save').addEventListener('click', async () => {
       fast: parseInt($('#set-k-fast').value), balanced: parseInt($('#set-k-balanced').value),
       deep: parseInt($('#set-k-deep').value), max: parseInt($('#set-k-max').value),
     },
+    depth_style: {
+      fast: $('#set-style-fast').value, balanced: $('#set-style-balanced').value,
+      deep: $('#set-style-deep').value, max: $('#set-style-max').value,
+    },
     chunk_words: parseInt($('#set-chunk').value), overlap_words: parseInt($('#set-overlap').value),
     ocr_enabled: $('#set-ocr-en').value === '1', ocr_model: $('#set-ocr-model').value.trim(),
     ocr_engine: $('#set-ocr-engine').value,
+    chunk_mode: $('#set-chunk-mode').value, semantic_percentile: parseInt($('#set-sem-pct').value),
   };
   try { const d = await api('/admin/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('#set-note').textContent = '✅ حُفظت';
     setTimeout(() => $('#set-note').textContent = '', 2000);
     toast('حُفظت الإعدادات'); loadOverview();
   } catch (e) { toast(e.message, true); }
+});
+
+/* ---- القياس والأداء ---- */
+let metricsTimer = null, metricsBusy = false;
+function fmtBytes(n) {
+  if (!n && n !== 0) return '—';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; n = Number(n);
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return n.toFixed(n < 10 && i > 0 ? 1 : 0) + ' ' + u[i];
+}
+function fmtDur(s) {
+  s = Math.floor(s || 0); const d = Math.floor(s / 86400); s %= 86400;
+  const h = Math.floor(s / 3600); s %= 3600; const m = Math.floor(s / 60);
+  return (d ? d + 'ي ' : '') + (h ? h + 'س ' : '') + m + 'د';
+}
+function gaugeColor(p) { return p >= 85 ? '#e5484d' : p >= 60 ? '#f5a623' : '#2fb573'; }
+function gauge(label, percent, sub) {
+  percent = Math.max(0, Math.min(100, percent || 0));
+  const R = 52, C = 2 * Math.PI * R, off = C * (1 - percent / 100), col = gaugeColor(percent);
+  return `<div class="gauge">
+    <svg viewBox="0 0 130 130">
+      <circle class="g-track" cx="65" cy="65" r="${R}" fill="none" stroke-width="11"/>
+      <circle cx="65" cy="65" r="${R}" fill="none" stroke="${col}" stroke-width="11" stroke-linecap="round"
+        stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+        transform="rotate(-90 65 65)" style="transition:stroke-dashoffset .5s, stroke .5s"/>
+      <text x="65" y="62" text-anchor="middle" font-size="26" font-weight="700" fill="var(--ink)">${percent.toFixed(0)}<tspan font-size="13">%</tspan></text>
+      <text x="65" y="82" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(label)}</text>
+    </svg>
+    <div class="g-lbl">${esc(label)}</div>
+    <div class="g-sub">${esc(sub || '')}</div>
+  </div>`;
+}
+function row(k, v) { return `<div class="m-row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+
+async function loadMetrics() {
+  if (metricsBusy) return; metricsBusy = true;
+  try {
+    const d = await api('/admin/api/metrics');
+    renderMetrics(d);
+    $('#m-updated').textContent = 'آخر تحديث: ' + (d.generated_at || '').replace('T', ' ');
+  } catch (e) {
+    $('#m-updated').textContent = '⚠️ ' + e.message;
+  } finally { metricsBusy = false; }
+}
+function renderMetrics(d) {
+  const mem = d.memory || {}, disk = d.disk || {}, cpu = d.cpu || {}, host = d.host || {},
+        pr = d.process || {}, ol = d.ollama || {}, cfg = d.config || {}, rag = d.rag || {}, ac = d.activity || {};
+  // القياسات الدائرية
+  $('#m-gauges').innerHTML =
+    gauge('المعالج CPU', cpu.percent, (host.cores_logical || '?') + ' نواة' + (cpu.freq_mhz ? ' · ' + (cpu.freq_mhz / 1000).toFixed(1) + 'GHz' : '')) +
+    gauge('الذاكرة RAM', mem.percent, fmtBytes(mem.used) + ' / ' + fmtBytes(mem.total)) +
+    gauge('القرص', disk.percent, fmtBytes(disk.free) + ' متاح') +
+    gauge('التبديل Swap', mem.swap_percent, fmtBytes(mem.swap_used) + ' / ' + fmtBytes(mem.swap_total));
+  // البطاقات
+  const cores = (cpu.per_core || []).map((p, i) =>
+    `<div style="font-size:11px"><span class="muted">نواة ${i + 1}</span> — ${p}%<div class="corebar"><i style="width:${p}%;background:${gaugeColor(p)}"></i></div></div>`).join('');
+  const inst = (ol.installed || []).map(m =>
+    row(esc(m.name) + (m.params ? `<span class="chip-mini">${esc(m.params)}</span>` : ''), fmtBytes(m.size))).join('') || '<div class="muted" style="font-size:12px">—</div>';
+  const loaded = (ol.loaded || []).map(m =>
+    row('🟢 ' + esc(m.name), fmtBytes(m.size_vram || m.size) + ' محمّل')).join('') || '<div class="muted" style="font-size:12px">لا نماذج محمّلة حاليًا</div>';
+  const byDepth = Object.entries(ac.questions_by_depth || {}).map(([k, v]) => row(esc(k), v)).join('') || '';
+
+  $('#m-body').innerHTML = `
+  <div class="m-grid">
+    <div class="m-card"><h4>🖥️ الجهاز</h4>
+      ${row('النظام', esc(host.os || '?') + ' ' + esc(host.os_release || ''))}
+      ${row('المعالج', esc((host.cpu || '?')))}
+      ${row('المعمارية', esc(host.arch || '?'))}
+      ${row('الأنوية', (host.cores_physical || '?') + ' فيزيائية / ' + (host.cores_logical || '?') + ' منطقية')}
+      ${row('اسم الجهاز', esc(host.hostname || '?'))}
+      ${row('إصدار Python', esc(host.python || '?'))}
+      ${row('متوسط الحِمل', (cpu.load_avg || []).join(' · ') || '—')}
+    </div>
+    <div class="m-card"><h4>⚙️ الخدمة والعمليات</h4>
+      ${row('مدة تشغيل الخادم', fmtDur(pr.app_uptime))}
+      ${row('ذاكرة التطبيق', fmtBytes(pr.app_rss))}
+      ${row('معالج التطبيق', (pr.app_cpu ?? '—') + '%')}
+      ${row('خيوط التطبيق', pr.app_threads ?? '—')}
+      ${row('ذاكرة Ollama', fmtBytes(pr.ollama_rss))}
+      ${row('جلسات مستخدمين نشطة', ac.sessions_active ?? 0)}
+      ${row('جلسات أدمن', ac.admin_sessions ?? 0)}
+    </div>
+    <div class="m-card"><h4>🧮 أنوية المعالج</h4>
+      <div style="display:grid;gap:8px">${cores || '<span class="muted">—</span>'}</div>
+    </div>
+  </div>
+  <div class="m-grid">
+    <div class="m-card"><h4>🤖 النماذج ${ol.reachable ? '<span class="chip-mini">Ollama متصل</span>' : '<span class="chip-mini" style="background:#fdeeee;color:#e5484d">Ollama غير متصل</span>'}</h4>
+      <div class="muted" style="font-size:11.5px;margin-bottom:6px">المحمّلة في الذاكرة الآن:</div>${loaded}
+      <div class="muted" style="font-size:11.5px;margin:10px 0 6px">المثبّتة:</div>${inst}
+    </div>
+    <div class="m-card"><h4>🔧 التهيئة النشطة</h4>
+      ${row('نموذج التوليد', esc(cfg.llm || '?'))}
+      ${row('نموذج التضمين', esc(cfg.embed || '?') + ' (' + (cfg.dims || '?') + ' بُعد)')}
+      ${row('OCR', (cfg.ocr_enabled ? 'مُفعّل' : 'مُعطّل') + ' · ' + esc(cfg.ocr_engine || '') + (cfg.ocr_engine === 'vision' ? ' (' + esc(cfg.ocr_model || '') + ')' : ''))}
+      ${row('طريقة التقطيع', cfg.chunk_mode === 'semantic' ? 'دلالي متتابع (مئين ' + cfg.semantic_percentile + ')' : 'بالعناوين')}
+      ${row('حد الصلة', cfg.max_distance)}
+      ${row('حجم المقطع / التداخل', cfg.chunk_words + ' / ' + cfg.overlap_words + ' كلمة')}
+      ${row('مقاطع المستويات', '🚀' + (cfg.depth_k?.fast ?? '-') + ' ⚖️' + (cfg.depth_k?.balanced ?? '-') + ' 🔬' + (cfg.depth_k?.deep ?? '-') + ' 🎯' + (cfg.depth_k?.max ?? '-'))}
+    </div>
+    <div class="m-card"><h4>📚 قاعدة المعرفة</h4>
+      ${row('الملفات المفهرسة', rag.files ?? 0)}
+      ${row('إجمالي المقاطع', rag.chunks ?? 0)}
+      ${row('حجم قاعدة المتجهات', fmtBytes(rag.db_size))}
+      ${row('مرفقات الجلسة', rag.attached_session ?? 0)}
+    </div>
+  </div>
+  <div class="m-card"><h4>📊 النشاط والأداء</h4>
+    <div class="stat-tiles">
+      <div class="tile"><div class="n">${ac.total_questions ?? 0}</div><div class="l">إجمالي الأسئلة</div></div>
+      <div class="tile"><div class="n">${ac.today_questions ?? 0}</div><div class="l">أسئلة اليوم</div></div>
+      <div class="tile"><div class="n">${ac.avg_response_s ?? '—'}${ac.avg_response_s != null ? 'ث' : ''}</div><div class="l">متوسط زمن الرد</div></div>
+      <div class="tile"><div class="n">${ac.max_response_s ?? '—'}${ac.max_response_s != null ? 'ث' : ''}</div><div class="l">أبطأ رد</div></div>
+      <div class="tile"><div class="n">${ac.total_logins ?? 0}</div><div class="l">دخول ناجح</div></div>
+      <div class="tile"><div class="n">${ac.failed_logins ?? 0}</div><div class="l">دخول فاشل</div></div>
+      <div class="tile"><div class="n">👍 ${ac.feedback_up ?? 0}</div><div class="l">تقييم إيجابي</div></div>
+      <div class="tile"><div class="n">👎 ${ac.feedback_down ?? 0}</div><div class="l">تقييم سلبي</div></div>
+    </div>
+    ${byDepth ? '<div style="margin-top:14px"><div class="muted" style="font-size:11.5px;margin-bottom:6px">الأسئلة حسب المستوى:</div>' + byDepth + '</div>' : ''}
+  </div>`;
+}
+function startMetrics() {
+  loadMetrics();
+  stopMetrics();
+  if ($('#m-toggle').dataset.paused !== '1') {
+    metricsTimer = setInterval(loadMetrics, parseInt($('#m-interval').value) || 5000);
+  }
+}
+function stopMetrics() { if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; } }
+$('#m-refresh').addEventListener('click', loadMetrics);
+$('#m-interval').addEventListener('change', () => { if (metricsTimer) startMetrics(); });
+$('#m-toggle').addEventListener('click', () => {
+  const b = $('#m-toggle');
+  if (b.dataset.paused === '1') { b.dataset.paused = '0'; b.textContent = '⏸ إيقاف'; startMetrics(); }
+  else { b.dataset.paused = '1'; b.textContent = '▶ تشغيل'; stopMetrics(); }
 });
 
 /* ---- صلاحيات الوصول ---- */

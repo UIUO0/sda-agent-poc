@@ -7,7 +7,10 @@ import hashlib
 import hmac
 import json
 import os
+import platform
 import secrets
+import socket
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -18,8 +21,15 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 import time
 
+try:
+    import psutil
+except ImportError:
+    psutil = None  # صفحة القياس تعمل بمعلومات مبسّطة لو غابت المكتبة
+
 import chromadb
 import ollama
+
+SERVER_START = time.time()  # لحظة بدء الخادم (لحساب مدة التشغيل)
 
 import ingest
 import query  # للوصول الديناميكي إلى الإعدادات القابلة للتغيير وقت التشغيل (النموذج، حد الصلة…)
@@ -177,6 +187,105 @@ def user_allowed_sources(username):
     return allowed
 
 
+# ===== حفظ إعدادات لوحة الإدارة على القرص (تبقى بعد إعادة التشغيل، وعامة لكل المستخدمين) =====
+SETTINGS_FILE = BASE_DIR / "settings.json"
+
+
+def save_settings():
+    data = {
+        "llm": query.LLM_MODEL,
+        "max_distance": query.MAX_DISTANCE,
+        "chunk_words": ingest.CHUNK_WORDS,
+        "overlap_words": ingest.OVERLAP_WORDS,
+        "default_depth": DEFAULT_DEPTH,
+        "ocr_enabled": ingest.OCR_ENABLED,
+        "ocr_model": ingest.OCR_MODEL,
+        "ocr_engine": getattr(ingest, "OCR_ENGINE", None),
+        "chunk_mode": ingest.CHUNK_MODE,
+        "semantic_percentile": ingest.SEMANTIC_PERCENTILE,
+        "depth_k": {lvl: DEPTHS[lvl]["k"] for lvl in DEPTHS},
+        "depth_style": {lvl: DEPTHS[lvl].get("style", "") for lvl in DEPTHS},
+    }
+    try:
+        SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"⚠️ تعذّر حفظ الإعدادات: {e}")
+
+
+def load_settings():
+    """يطبّق الإعدادات المحفوظة عند بدء التشغيل (إن وُجدت)."""
+    global DEFAULT_DEPTH
+    try:
+        d = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if d.get("llm"):
+        query.LLM_MODEL = str(d["llm"])
+    if d.get("max_distance") is not None:
+        try: query.MAX_DISTANCE = float(d["max_distance"])
+        except (TypeError, ValueError): pass
+    if d.get("chunk_words") is not None:
+        try: ingest.CHUNK_WORDS = int(d["chunk_words"])
+        except (TypeError, ValueError): pass
+    if d.get("overlap_words") is not None:
+        try: ingest.OVERLAP_WORDS = int(d["overlap_words"])
+        except (TypeError, ValueError): pass
+    if d.get("default_depth") in DEPTHS:
+        DEFAULT_DEPTH = d["default_depth"]
+    if d.get("ocr_model"):
+        ingest.OCR_MODEL = str(d["ocr_model"])
+    if d.get("ocr_enabled") is not None:
+        ingest.OCR_ENABLED = bool(d["ocr_enabled"])
+    if d.get("ocr_engine") in ("tesseract", "vision") and hasattr(ingest, "OCR_ENGINE"):
+        ingest.OCR_ENGINE = d["ocr_engine"]
+    if d.get("chunk_mode") in ("heading", "semantic"):
+        ingest.CHUNK_MODE = d["chunk_mode"]
+    if d.get("semantic_percentile") is not None:
+        try: ingest.SEMANTIC_PERCENTILE = int(d["semantic_percentile"])
+        except (TypeError, ValueError): pass
+    if isinstance(d.get("depth_k"), dict):
+        for lvl, kv in d["depth_k"].items():
+            if lvl in DEPTHS:
+                try:
+                    kk = int(kv)
+                    if 1 <= kk <= 50:
+                        DEPTHS[lvl]["k"] = kk
+                except (TypeError, ValueError):
+                    pass
+    if isinstance(d.get("depth_style"), dict):
+        for lvl, st in d["depth_style"].items():
+            if lvl in DEPTHS and isinstance(st, str) and st.strip():
+                DEPTHS[lvl]["style"] = st.strip()
+
+
+load_settings()  # تطبيق الإعدادات المحفوظة عند بدء التشغيل (تبقى بعد الإغلاق)
+
+
+def _dir_size(path):
+    total = 0
+    try:
+        for p in Path(path).rglob("*"):
+            if p.is_file():
+                total += p.stat().st_size
+    except Exception:
+        pass
+    return total
+
+
+def _cpu_brand():
+    try:
+        if platform.system() == "Darwin":
+            return subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"],
+                                           text=True, timeout=2).strip()
+        if platform.system() == "Linux":
+            for line in open("/proc/cpuinfo", encoding="utf-8"):
+                if line.lower().startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return platform.processor() or platform.machine()
+
+
 def sse(event, data):
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8")
 
@@ -205,6 +314,8 @@ class Handler(BaseHTTPRequestHandler):
                 depth = DEFAULT_DEPTH
             # مصدر الإجابة: "docs" (بحث في المستندات - افتراضي) أو "general" (معرفة عامة)
             source = params.get("source", ["docs"])[0]
+            # خيار المستخدم: جلب القسم كاملًا عند التطابق، أم أعلى المقاطع فقط
+            full_section = params.get("full_section", ["0"])[0] in ("1", "true", "yes")
             # هوية المستخدم لتطبيق صلاحيات الوصول
             token = params.get("token", [""])[0]
             username = USER_SESSIONS.get(token)
@@ -229,7 +340,8 @@ class Handler(BaseHTTPRequestHandler):
                     history = []
             audit_log("ask", user=username, q=q, depth=depth, source=source)
             try:
-                self._answer(q, depth, source, allowed=allowed, history=history)
+                self._answer(q, depth, source, allowed=allowed, history=history,
+                             full_section=full_section)
             except (BrokenPipeError, ConnectionResetError):
                 pass  # المستخدم أغلق الصفحة
             except Exception as e:
@@ -257,12 +369,13 @@ class Handler(BaseHTTPRequestHandler):
                 depth = DEFAULT_DEPTH
             source = params.get("source", ["docs"])[0]
             dataset = params.get("dataset", [ALL_DATA])[0]
+            full_section = params.get("full_section", ["0"])[0] in ("1", "true", "yes")
             if not q:
                 self.wfile.write(sse("err", {"msg": "سؤال فارغ"}))
                 return
             allowed = None if dataset == ALL_DATA else set(load_access()["data_groups"].get(dataset, []))
             try:
-                self._answer(q, depth, source, allowed=allowed)
+                self._answer(q, depth, source, allowed=allowed, full_section=full_section)
             except (BrokenPipeError, ConnectionResetError):
                 pass
             except Exception as e:
@@ -335,6 +448,162 @@ class Handler(BaseHTTPRequestHandler):
             pass
         return out
 
+    # ---------------- القياس والأداء ----------------
+    def _ollama_detail(self):
+        out = {"reachable": False, "installed": [], "loaded": []}
+        try:
+            resp = ollama.list()
+            for it in (_g(resp, "models") or []):
+                det = _g(it, "details") or {}
+                out["installed"].append({
+                    "name": _g(it, "model") or _g(it, "name"),
+                    "size": _g(it, "size") or 0,
+                    "params": _g(det, "parameter_size"),
+                    "quant": _g(det, "quantization_level"),
+                    "family": _g(det, "family")})
+            out["reachable"] = True
+        except Exception:
+            pass
+        try:
+            ps = ollama.ps()
+            for it in (_g(ps, "models") or []):
+                out["loaded"].append({
+                    "name": _g(it, "model") or _g(it, "name"),
+                    "size": _g(it, "size") or 0,
+                    "size_vram": _g(it, "size_vram") or 0})
+        except Exception:
+            pass
+        return out
+
+    def _activity_stats(self):
+        st = {"total_questions": 0, "total_logins": 0, "failed_logins": 0,
+              "questions_by_depth": {}, "questions_by_source": {}, "today_questions": 0,
+              "feedback_up": 0, "feedback_down": 0,
+              "avg_response_s": None, "min_response_s": None, "max_response_s": None,
+              "response_samples": 0}
+        today = datetime.now().date().isoformat()
+        try:
+            for line in open(AUDIT_FILE, encoding="utf-8"):
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("event") == "ask":
+                    st["total_questions"] += 1
+                    d = r.get("depth", "?")
+                    s = r.get("source", "?")
+                    st["questions_by_depth"][d] = st["questions_by_depth"].get(d, 0) + 1
+                    st["questions_by_source"][s] = st["questions_by_source"].get(s, 0) + 1
+                    if str(r.get("ts", "")).startswith(today):
+                        st["today_questions"] += 1
+                elif r.get("event") == "login":
+                    st["total_logins" if r.get("ok") else "failed_logins"] += 1
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+        times = []
+        try:
+            for line in open(FEEDBACK_FILE, encoding="utf-8"):
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                rt = r.get("rating")
+                if rt == "up":
+                    st["feedback_up"] += 1
+                elif rt == "down":
+                    st["feedback_down"] += 1
+                e = r.get("elapsed_s")
+                if isinstance(e, (int, float)):
+                    times.append(e)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+        if times:
+            st["avg_response_s"] = round(sum(times) / len(times), 1)
+            st["min_response_s"] = round(min(times), 1)
+            st["max_response_s"] = round(max(times), 1)
+            st["response_samples"] = len(times)
+        return st
+
+    def _metrics(self):
+        m = {"generated_at": datetime.now().isoformat(timespec="seconds"),
+             "psutil": bool(psutil)}
+        try:
+            m["host"] = {
+                "os": platform.system(), "os_release": platform.release(),
+                "arch": platform.machine(), "hostname": socket.gethostname(),
+                "cpu": _cpu_brand(), "python": platform.python_version(),
+                "cores_physical": (psutil.cpu_count(logical=False) if psutil else os.cpu_count()),
+                "cores_logical": (psutil.cpu_count(logical=True) if psutil else os.cpu_count()),
+            }
+        except Exception:
+            m["host"] = {}
+        m["cpu"] = {"percent": 0, "per_core": []}
+        try:
+            if psutil:
+                per = psutil.cpu_percent(interval=0.25, percpu=True)
+                m["cpu"]["per_core"] = [round(x, 1) for x in per]
+                m["cpu"]["percent"] = round(sum(per) / len(per), 1) if per else 0
+                fr = psutil.cpu_freq()
+                if fr:
+                    m["cpu"]["freq_mhz"] = round(fr.current)
+            m["cpu"]["load_avg"] = [round(x, 2) for x in os.getloadavg()]
+        except Exception:
+            pass
+        m["memory"], m["disk"] = {}, {}
+        try:
+            if psutil:
+                vm = psutil.virtual_memory()
+                sm = psutil.swap_memory()
+                m["memory"] = {"total": vm.total, "used": vm.used, "available": vm.available,
+                               "percent": vm.percent, "swap_total": sm.total,
+                               "swap_used": sm.used, "swap_percent": sm.percent}
+                du = psutil.disk_usage(str(BASE_DIR))
+                m["disk"] = {"total": du.total, "used": du.used, "free": du.free, "percent": du.percent}
+        except Exception:
+            pass
+        m["disk"]["db_size"] = _dir_size(DB_DIR)
+        m["process"] = {"app_uptime": int(time.time() - SERVER_START)}
+        try:
+            if psutil:
+                p = psutil.Process()
+                m["process"].update({"app_rss": p.memory_info().rss,
+                                     "app_cpu": round(p.cpu_percent(interval=0.0), 1),
+                                     "app_threads": p.num_threads()})
+                orss = 0
+                for pr in psutil.process_iter(["name", "memory_info"]):
+                    try:
+                        if "ollama" in (pr.info.get("name") or "").lower():
+                            orss += pr.info["memory_info"].rss
+                    except Exception:
+                        pass
+                m["process"]["ollama_rss"] = orss
+        except Exception:
+            pass
+        m["ollama"] = self._ollama_detail()
+        m["config"] = {"llm": query.LLM_MODEL, "embed": EMBED_MODEL, "dims": 1024,
+                       "ocr_model": ingest.OCR_MODEL, "ocr_engine": getattr(ingest, "OCR_ENGINE", ""),
+                       "ocr_enabled": ingest.OCR_ENABLED, "chunk_mode": ingest.CHUNK_MODE,
+                       "semantic_percentile": ingest.SEMANTIC_PERCENTILE,
+                       "max_distance": query.MAX_DISTANCE, "chunk_words": ingest.CHUNK_WORDS,
+                       "overlap_words": ingest.OVERLAP_WORDS,
+                       "depth_k": {lvl: DEPTHS[lvl]["k"] for lvl in DEPTHS}}
+        files = {}
+        try:
+            for md in COL.get(include=["metadatas"])["metadatas"]:
+                files[md["source"]] = files.get(md["source"], 0) + 1
+        except Exception:
+            pass
+        m["rag"] = {"files": len(files), "chunks": sum(files.values()),
+                    "attached_session": len(ATTACHED["names"]), "db_size": m["disk"].get("db_size", 0)}
+        m["activity"] = self._activity_stats()
+        m["activity"]["sessions_active"] = len(USER_SESSIONS)
+        m["activity"]["admin_sessions"] = len(ADMIN_SESSIONS)
+        return m
+
     def _files_detail(self):
         """قائمة الملفات المفهرسة مع عدد المقاطع ونطاق الصفحات."""
         files = {}
@@ -375,11 +644,15 @@ class Handler(BaseHTTPRequestHandler):
                 "chunk_words": ingest.CHUNK_WORDS, "overlap_words": ingest.OVERLAP_WORDS,
                 "max_distance": query.MAX_DISTANCE, "default_depth": DEFAULT_DEPTH,
                 "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL,
+                "chunk_mode": ingest.CHUNK_MODE, "semantic_percentile": ingest.SEMANTIC_PERCENTILE,
                 "files_count": len(per), "total_chunks": sum(per.values()),
                 "feedback_count": fb, "ollama_models": self._ollama_models(),
                 "attached_session": list(ATTACHED["names"]),
-                "depths": list(DEPTHS.keys()),
+                "depths": {lvl: {"k": DEPTHS[lvl]["k"], "style": DEPTHS[lvl].get("style", "")}
+                           for lvl in DEPTHS},
             })
+        elif path == "/admin/api/metrics":
+            self._json(self._metrics())
         elif path == "/admin/api/files":
             self._json({"files": self._files_detail()})
         elif path == "/admin/api/chunks":
@@ -603,6 +876,11 @@ class Handler(BaseHTTPRequestHandler):
                                     DEPTHS[_lvl]["k"] = _kk
                             except (TypeError, ValueError):
                                 pass
+                if isinstance(data.get("depth_style"), dict):
+                    # نص الأسلوب (هندسة الموجّه) لكل مستوى تفكير — قابل للتعديل من الأدمن
+                    for _lvl, _st in data["depth_style"].items():
+                        if _lvl in DEPTHS and isinstance(_st, str) and _st.strip():
+                            DEPTHS[_lvl]["style"] = _st.strip()
                 if data.get("chunk_words") is not None:
                     ingest.CHUNK_WORDS = int(data["chunk_words"])
                 if data.get("overlap_words") is not None:
@@ -615,12 +893,25 @@ class Handler(BaseHTTPRequestHandler):
                     ingest.OCR_ENABLED = bool(data["ocr_enabled"])
                 if data.get("ocr_engine") in ("tesseract", "vision"):
                     ingest.OCR_ENGINE = data["ocr_engine"]
+                if data.get("chunk_mode") in ("heading", "semantic"):
+                    ingest.CHUNK_MODE = data["chunk_mode"]
+                if data.get("semantic_percentile") is not None:
+                    try:
+                        _sp = int(data["semantic_percentile"])
+                        if 50 <= _sp <= 99:
+                            ingest.SEMANTIC_PERCENTILE = _sp
+                    except (TypeError, ValueError):
+                        pass
+                save_settings()  # حفظ دائم على القرص (يبقى بعد إعادة التشغيل)
                 self._json({"ok": True, "llm": query.LLM_MODEL, "max_distance": query.MAX_DISTANCE,
                             "chunk_words": ingest.CHUNK_WORDS, "overlap_words": ingest.OVERLAP_WORDS,
                             "default_depth": DEFAULT_DEPTH,
-                            "depths": {k: {"k": v["k"], "verify": bool(v.get("verify"))} for k, v in DEPTHS.items()},
+                            "depths": {k: {"k": v["k"], "style": v.get("style", ""),
+                                           "verify": bool(v.get("verify"))} for k, v in DEPTHS.items()},
                             "ocr_enabled": ingest.OCR_ENABLED, "ocr_model": ingest.OCR_MODEL,
-                            "ocr_engine": ingest.OCR_ENGINE})
+                            "ocr_engine": ingest.OCR_ENGINE,
+                            "chunk_mode": ingest.CHUNK_MODE,
+                            "semantic_percentile": ingest.SEMANTIC_PERCENTILE})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return
@@ -974,7 +1265,8 @@ class Handler(BaseHTTPRequestHandler):
         self._stream_tokens(_chat(msgs))
         self._emit("done", {})
 
-    def _answer(self, q, depth="balanced", source="docs", allowed=None, history=None):
+    def _answer(self, q, depth="balanced", source="docs", allowed=None, history=None,
+                full_section=False):
         cfg = DEPTHS[depth]
         history = history or []
 
@@ -1021,7 +1313,8 @@ class Handler(BaseHTTPRequestHandler):
         self._emit("stage", {"stage": "embed"})
         self._emit("stage", {"stage": "retrieve"})
         search_q = condense_question(history, q) if history else q
-        hits, n_candidates, section = select_hits(COL, search_q, cfg, allowed=allowed)
+        hits, n_candidates, section = select_hits(COL, search_q, cfg, allowed=allowed,
+                                                  full_section=full_section)
 
         # لا مقاطع ذات صلة → رسالة ثابتة صريحة (بلا معرفة عامة، بلا هلوسة)
         if not hits:
